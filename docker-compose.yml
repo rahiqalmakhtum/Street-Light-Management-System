@@ -1,0 +1,36 @@
+services:
+  hivemq:
+    image: hivemq/hivemq-ce:latest
+    container_name: streetlight-hivemq
+    ports:
+      - "1883:1883"    # MQTT TCP Port
+      - "8000:8000"    # WebSockets Port (if enabled)
+    environment:
+      - HIVEMQ_LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - streetlight-net
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: streetlight-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: streetlight_db
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    networks:
+      - streetlight-net
+
+volumes:
+  pgdata:
+
+networks:
+  streetlight-net:
+    driver: bridge
