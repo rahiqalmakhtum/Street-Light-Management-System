@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "mqtt": "^5.10.1"
+    "mqtt": "^5.10.1",
+    "street-light-management-system": "file:.."
   }
 }

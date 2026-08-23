@@ -1,15 +1,19 @@
 {
   "name": "street-light-management-system",
   "version": "1.0.0",
-  "description": "Smart Street Light Management System IoT Prototype with HiveMQ CE, PostgreSQL 15, Node.js Backend, Simulator, and React Dashboard.",
+  "description": "Smart Street Light Management System IoT Industrial Platform with HiveMQ CE, PostgreSQL 15, Node.js Backend, Simulator, and React Dashboard.",
   "scripts": {
-    "install:all": "npm --prefix backend install && npm --prefix simulator install && npm --prefix dashboard install",
+    "dev": "concurrently --kill-others --prefix \"[{name}]\" --names \"BACKEND,SIMULATOR,DASHBOARD\" -c \"bgBlue.bold,bgMagenta.bold,bgGreen.bold\" \"npm run dev:backend\" \"npm run dev:simulator\" \"npm run dev:dashboard\"",
+    "install:all": "npm --prefix backend install && npm --prefix simulator install && npm --prefix dashboard install && npm install",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "dev:backend": "npm --prefix backend run dev",
     "dev:simulator": "npm --prefix simulator run dev",
     "dev:dashboard": "npm --prefix dashboard run dev",
     "test:e2e": "npm --prefix backend run test:e2e"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.4"
   },
   "keywords": [
     "iot",
