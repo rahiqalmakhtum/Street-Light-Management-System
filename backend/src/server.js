@@ -5,7 +5,18 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDB, getPoles, getTelemetryLogs, getRecentAlerts, saveAlert, upsertAlertState, pool } from './db.js';
+import { 
+  initDB, 
+  getPoles, 
+  getTelemetryLogs, 
+  getRecentAlerts, 
+  saveAlert, 
+  upsertAlertState, 
+  updatePolePosition,
+  createOrUpdatePole,
+  deletePole,
+  pool 
+} from './db.js';
 import { initMQTT, sendControlCommand, setBroadcastCallback, closeMQTT, clearActiveAlarmStates } from './mqtt.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,7 +44,34 @@ wss.on('connection', (ws) => {
     ws.isAlive = true;
   });
 
-  ws.send(JSON.stringify({ type: 'CONNECTED', message: 'Connected to Street Light Live Feed' }));
+  ws.send(JSON.stringify({ 
+    type: 'CONNECTED', 
+    message: 'Connected to Street Light Live Feed',
+    timestamp: new Date().toISOString() 
+  }));
+
+  // Handle client-initiated WebSocket requests
+  ws.on('message', async (rawMsg) => {
+    try {
+      const msg = JSON.parse(rawMsg.toString());
+      if (msg.type === 'SELECT_POLE' && msg.pole_id) {
+        const history = await getTelemetryLogs(msg.pole_id, 30);
+        ws.send(JSON.stringify({
+          type: 'POLE_HISTORY',
+          pole_id: msg.pole_id,
+          data: history,
+        }));
+      } else if (msg.type === 'GET_POLES') {
+        const poles = await getPoles();
+        ws.send(JSON.stringify({
+          type: 'POLES_UPDATE',
+          data: poles,
+        }));
+      }
+    } catch (err) {
+      console.warn('[WebSocket Client Message Error]:', err.message);
+    }
+  });
 
   ws.on('close', () => {
     clients.delete(ws);
@@ -92,22 +130,35 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// 1. Get all poles with latest telemetry snapshot
+// 1. Get all 15 poles with cluster_id, gateway coordinates, and latest state for the GIS map
 app.get('/api/poles', async (req, res) => {
   try {
     const poles = await getPoles();
-    res.json({ success: true, data: poles });
+    res.json({ success: true, count: poles.length, data: poles });
   } catch (error) {
     console.error('Error fetching poles:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 2. Get telemetry history for a specific pole (or all poles)
+// 2. Get rolling historical telemetry for the selected pole (last 20-30 data points for charge/discharge chart)
+app.get('/api/poles/:id/history', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit, 10) || 30));
+    const logs = await getTelemetryLogs(id === 'all' ? null : id, limit);
+    res.json({ success: true, pole_id: id, count: logs.length, data: logs });
+  } catch (error) {
+    console.error(`Error fetching history for ${req.params.id}:`, error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Compatibility alias for telemetry history
 app.get('/api/poles/:id/telemetry', async (req, res) => {
   try {
     const { id } = req.params;
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const limit = parseInt(req.query.limit, 10) || 30;
     const logs = await getTelemetryLogs(id === 'all' ? null : id, limit);
     res.json({ success: true, data: logs });
   } catch (error) {
@@ -129,30 +180,62 @@ app.get('/api/alerts', async (req, res) => {
   }
 });
 
-// 4. Send control command to a pole
+// 4. Send downlink control command to a pole (adjust light state ON/OFF and brightness 0-100%)
 app.post('/api/poles/:id/control', async (req, res) => {
   try {
     const { id } = req.params;
-    const lightState = req.body.light_state !== undefined ? req.body.light_state : req.body.state;
-    const brightness = req.body.brightness;
+    const lightState = req.body.state !== undefined 
+      ? req.body.state 
+      : (req.body.light_state !== undefined ? req.body.light_state : true);
+    let brightness = req.body.brightness;
 
-    if (lightState === undefined) {
-      return res.status(400).json({ success: false, error: 'light_state or state is required (boolean)' });
+    if (brightness !== undefined) {
+      brightness = Math.min(100, Math.max(0, Number(brightness)));
+      if (brightness === 0) {
+        // Brightness 0 means OFF
+      }
+    } else {
+      brightness = lightState ? 100 : 0;
     }
 
+    const isLightOn = Boolean(lightState && brightness > 0);
+
+    // 1. Publish command payload to MQTT broker on streetlight/control/:id
     sendControlCommand(id, {
-      light_state: Boolean(lightState),
-      state: Boolean(lightState),
-      brightness: brightness !== undefined ? Number(brightness) : (lightState ? 100 : 0),
+      pole_id: id,
+      state: isLightOn,
+      light_state: isLightOn,
+      brightness,
     });
 
+    // 2. Persist state in PostgreSQL database
+    try {
+      await pool.query(
+        `UPDATE poles 
+         SET is_on = $1, 
+             brightness = $2, 
+             status = 'ONLINE', 
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE pole_id = $3`,
+        [isLightOn, brightness, id]
+      );
+    } catch (dbErr) {
+      console.warn(`[DB Warning] Updating pole ${id} state:`, dbErr.message);
+    }
+
+    // 3. Broadcast real-time command dispatched event to all connected WebSocket clients
     broadcast({
       type: 'CONTROL_COMMAND_SENT',
       pole_id: id,
-      command: { light_state: Boolean(lightState), state: Boolean(lightState), brightness },
+      command: { state: isLightOn, light_state: isLightOn, brightness },
     });
 
-    res.json({ success: true, message: `Control command dispatched for ${id}` });
+    res.json({ 
+      success: true, 
+      message: `Downlink control command dispatched for ${id}`,
+      pole_id: id,
+      command: { state: isLightOn, light_state: isLightOn, brightness }
+    });
   } catch (error) {
     console.error('Error sending control command:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -195,25 +278,24 @@ app.post('/api/poles/:id/tamper', async (req, res) => {
       message: `🚨 CRITICAL: Physical tamper sensor triggered on ${id} (Solar panel ripped off / 0V Theft Alert)`,
     });
 
-    // 1. Publish command to MQTT simulator to drop voltage to 0V
+    // 1. Update pole state in PostgreSQL
     try {
-      sendControlCommand(id, { tamper: true, voltage: 0, light_state: false, brightness: 0 });
+      await pool.query(
+        `UPDATE poles 
+         SET is_on = false, brightness = 0, status = 'TAMPER/CRITICAL', updated_at = CURRENT_TIMESTAMP 
+         WHERE pole_id = $1`,
+        [id]
+      );
+    } catch (dbErr) {
+      console.warn('[DB Warning] Tamper pole update:', dbErr.message);
+    }
+
+    // 2. Publish command to MQTT simulator to drop voltage to 0V and disable light
+    try {
+      sendControlCommand(id, { tamper: true, voltage: 0, current: 0, power_watts: 0, light_state: false, brightness: 0 });
     } catch (mqttErr) {
       console.warn('[MQTT Warning] Failed to publish tamper to simulator:', mqttErr.message);
     }
-
-    // 2. Broadcast instant 0V telemetry update & alarm to WebSockets
-    broadcast({
-      type: 'TELEMETRY',
-      pole_id: id,
-      data: {
-        pole_id: id,
-        voltage: 0,
-        current: 0,
-        light_state: false,
-        created_at: new Date().toISOString(),
-      },
-    });
 
     broadcast({ type: isNew ? 'ALERT_TRIGGERED' : 'ALERT_UPDATED', data: alert });
     broadcast({ type: 'ALERT', data: alert });
@@ -242,24 +324,24 @@ app.post('/api/poles/:id/resolve-alerts', async (req, res) => {
       [id]
     );
 
-    // 3. Dispatch hardware recovery/restore command to MQTT simulator
+    // 3. Restore pole nominal state in PostgreSQL
     try {
-      sendControlCommand(id, { restore: true, tamper: false, voltage: 230 });
+      await pool.query(
+        `UPDATE poles 
+         SET is_on = true, brightness = 100, status = 'ONLINE', updated_at = CURRENT_TIMESTAMP 
+         WHERE pole_id = $1`,
+        [id]
+      );
+    } catch (dbErr) {
+      console.warn('[DB Warning] Restore pole update:', dbErr.message);
+    }
+
+    // 4. Dispatch hardware recovery & full illumination restore command to MQTT simulator
+    try {
+      sendControlCommand(id, { restore: true, tamper: false, voltage: 230, current: 0.85, light_state: true, brightness: 100 });
     } catch (mqttErr) {
       console.warn('[MQTT Warning] Failed to publish restore command to simulator:', mqttErr.message);
     }
-
-    // 4. Instant WebSocket broadcast of restored nominal telemetry snapshot
-    broadcast({
-      type: 'TELEMETRY',
-      pole_id: id,
-      data: {
-        pole_id: id,
-        voltage: 230,
-        current: 0.85,
-        created_at: new Date().toISOString(),
-      },
-    });
 
     // 5. Broadcast alert clearance events
     if (result.rows.length > 0) {
@@ -277,6 +359,91 @@ app.post('/api/poles/:id/resolve-alerts', async (req, res) => {
     res.json({ success: true, resolved_count: result.rows.length, data: result.rows });
   } catch (error) {
     console.error('Error resolving alerts:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 7a. Update custom position (latitude, longitude) of a pole
+app.put('/api/poles/:id/position', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { latitude, longitude } = req.body;
+
+    if (latitude === undefined || longitude === undefined || isNaN(latitude) || isNaN(longitude)) {
+      return res.status(400).json({ success: false, error: 'Valid numeric latitude and longitude are required' });
+    }
+
+    const updated = await updatePolePosition(id, latitude, longitude);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: `Pole ${id} not found` });
+    }
+
+    const allPoles = await getPoles();
+
+    // Broadcast instant position update to all GIS dashboard clients
+    broadcast({
+      type: 'POLE_POSITION_UPDATED',
+      pole_id: id,
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+    });
+    broadcast({ type: 'POLES_UPDATE', data: allPoles });
+
+    res.json({ success: true, message: `Position updated for ${id}`, data: updated, poles: allPoles });
+  } catch (error) {
+    console.error('Error updating pole position:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 7b. Create or register a new custom pole
+app.post('/api/poles', async (req, res) => {
+  try {
+    const { pole_id, name, cluster_id, gateway_id, latitude, longitude, zone, battery_capacity_ah } = req.body;
+
+    if (!pole_id || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ success: false, error: 'pole_id, latitude, and longitude are required' });
+    }
+
+    const newPole = await createOrUpdatePole({
+      pole_id,
+      name: name || `Smart Pole ${pole_id}`,
+      cluster_id: cluster_id || 'CLUSTER-A',
+      gateway_id: gateway_id || 'GATEWAY-01',
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+      zone: zone || 'Uttara Sector 18',
+      battery_capacity_ah: battery_capacity_ah ? Number(battery_capacity_ah) : 120.0,
+    });
+
+    const allPoles = await getPoles();
+
+    broadcast({ type: 'POLE_CREATED', data: newPole });
+    broadcast({ type: 'POLES_UPDATE', data: allPoles });
+
+    res.status(201).json({ success: true, message: `Pole ${pole_id} created successfully`, data: newPole, poles: allPoles });
+  } catch (error) {
+    console.error('Error creating pole:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 7c. Delete a custom pole
+app.delete('/api/poles/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await deletePole(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: `Pole ${id} not found` });
+    }
+
+    const allPoles = await getPoles();
+    broadcast({ type: 'POLE_DELETED', pole_id: id });
+    broadcast({ type: 'POLES_UPDATE', data: allPoles });
+
+    res.json({ success: true, message: `Pole ${id} removed successfully`, pole_id: id });
+  } catch (error) {
+    console.error('Error deleting pole:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

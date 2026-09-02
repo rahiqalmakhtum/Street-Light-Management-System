@@ -64,16 +64,28 @@ async function runTestSuite() {
     recordResult('Infrastructure', 'PostgreSQL 15 (Port 5433)', false, Date.now() - tPgStart, err.message);
   }
 
-  // 1.3 Backend HTTP Server
+  // 1.3 Backend HTTP Server: GET /api/poles
   const tHttpStart = Date.now();
   try {
     const res = await fetch(`${HTTP_BASE}/api/poles`);
     const data = await res.json();
     const tHttp = Date.now() - tHttpStart;
-    const passed = res.ok && data.success === true && Array.isArray(data.data);
+    const passed = res.ok && data.success === true && Array.isArray(data.data) && data.data.length >= 15;
     recordResult('Infrastructure', 'Backend HTTP Server (GET /api/poles)', passed, tHttp, `Status: ${res.status}, Poles: ${data.data?.length}`);
   } catch (err) {
     recordResult('Infrastructure', 'Backend HTTP Server (GET /api/poles)', false, Date.now() - tHttpStart, err.message);
+  }
+
+  // 1.4 Rolling Telemetry History: GET /api/poles/:id/history
+  const tHistoryStart = Date.now();
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/poles/POLE-001/history?limit=30`);
+    const data = await res.json();
+    const tHistory = Date.now() - tHistoryStart;
+    const passed = res.ok && data.success === true && Array.isArray(data.data);
+    recordResult('Infrastructure', 'Pole History API (GET /api/poles/:id/history)', passed, tHistory, `Status: ${res.status}, History Count: ${data.data?.length}`);
+  } catch (err) {
+    recordResult('Infrastructure', 'Pole History API (GET /api/poles/:id/history)', false, Date.now() - tHistoryStart, err.message);
   }
 
   // 1.4 Backend WebSocket Handshake
@@ -111,7 +123,17 @@ async function runTestSuite() {
         counter: testCounter,
         voltage: 230.5,
         current: 1.5,
+        power_watts: 345.8,
+        energy_kwh: 0.125,
+        battery_voltage: 13.8,
+        battery_temp: 31.5,
+        state_of_charge: 88,
         battery_soc: 88,
+        battery_current: -1.9,
+        estimated_runtime_minutes: 420,
+        ambient_light_lux: 15.0,
+        brightness: 100,
+        tamper_status: false,
         light_state: true,
       };
 
@@ -145,15 +167,24 @@ async function runTestSuite() {
       );
       const dbRow = dbCheck.rows[0];
 
-      const dbMatch = dbRow && Number(dbRow.voltage) === 230.5 && Number(dbRow.current) === 1.5 && dbRow.battery_soc === 88 && dbRow.light_state === true;
+      const dbMatch = dbRow && 
+        Number(dbRow.voltage) === 230.5 && 
+        Number(dbRow.current) === 1.5 && 
+        Number(dbRow.power_watts) === 345.8 &&
+        Number(dbRow.battery_voltage) === 13.8 &&
+        Number(dbRow.battery_temp) === 31.5 &&
+        (Number(dbRow.state_of_charge) === 88 || Number(dbRow.battery_soc) === 88) &&
+        Number(dbRow.battery_current) === -1.9 &&
+        Number(dbRow.estimated_runtime_minutes) === 420 &&
+        dbRow.light_state === true;
       const wsMatch = wsReceived && tUplink < 500;
 
       recordResult(
         'Uplink Pipeline',
-        'Telemetry Ingestion (MQTT -> DB)',
+        'Telemetry & Battery Analytics Ingestion (MQTT -> DB)',
         Boolean(dbMatch),
         tUplink,
-        `DB Record ID: ${dbRow?.id}, Voltage: ${dbRow?.voltage}V, Current: ${dbRow?.current}A`
+        `DB Record ID: ${dbRow?.id}, V: ${dbRow?.voltage}V, BattV: ${dbRow?.battery_voltage}V, Temp: ${dbRow?.battery_temp}°C, Runtime: ${dbRow?.estimated_runtime_minutes}m`
       );
 
       recordResult(
@@ -297,16 +328,17 @@ async function runTestSuite() {
   console.log('\n--- 5. Database Schema & Data Integrity Check ---');
   const tDbCheckStart = Date.now();
   try {
-    // Check poles
-    const polesRes = await pool.query('SELECT pole_id, status FROM poles ORDER BY pole_id');
+    // Check 15 seed poles across 3 clusters
+    const polesRes = await pool.query('SELECT pole_id, cluster_id, gateway_id, latitude, longitude, status FROM poles ORDER BY pole_id');
     const poleIds = polesRes.rows.map((p) => p.pole_id);
-    const hasPoles = poleIds.includes('POLE-001') && poleIds.includes('POLE-002');
+    const expectedPoles = Array.from({ length: 15 }, (_, i) => `POLE-${String(i + 1).padStart(3, '0')}`);
+    const hasAllPoles = expectedPoles.every((id) => poleIds.includes(id));
     recordResult(
       'Data Integrity',
-      'Seed Poles Verification (POLE-001, POLE-002)',
-      hasPoles,
+      'Seed Poles Verification (15 Poles across Clusters A, B, C)',
+      hasAllPoles,
       Date.now() - tDbCheckStart,
-      `Poles found in DB: ${poleIds.join(', ')}`
+      `Poles found in DB (${poleIds.length}/15): ${poleIds.slice(0, 5).join(', ')}...`
     );
 
     // Check NULL constraints on telemetry

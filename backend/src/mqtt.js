@@ -125,14 +125,42 @@ export function initMQTT() {
       if (topic.startsWith('streetlight/telemetry/')) {
         const poleId = topic.split('/')[2] || data.pole_id;
 
+        const voltage = Number(data.voltage ?? 230);
+        const current = Number(data.current ?? 0.8);
+        const power_watts = data.power_watts !== undefined ? Number(data.power_watts) : Number((voltage * current).toFixed(1));
+        const soc = Number(data.state_of_charge ?? data.battery_soc ?? 90);
+        const battery_voltage = data.battery_voltage !== undefined ? Number(data.battery_voltage) : Number((12.0 + (soc / 100) * 2.4).toFixed(2));
+        const battery_temp = data.battery_temp !== undefined ? Number(data.battery_temp) : 28.5;
+        const battery_current = data.battery_current !== undefined ? Number(data.battery_current) : (data.light_state ? -1.8 : 2.2);
+        const brightness = data.brightness !== undefined ? Number(data.brightness) : (data.light_state ? 100 : 0);
+        const estimated_runtime_minutes = data.estimated_runtime_minutes !== undefined 
+          ? Number(data.estimated_runtime_minutes)
+          : Math.round((soc / 100) * 120 * (12.0 / Math.max(power_watts, 10)) * 60);
+        const ambient_light_lux = data.ambient_light_lux !== undefined ? Number(data.ambient_light_lux) : (data.light_state ? 15 : 450);
+        const tamper_status = Boolean(data.tamper_status ?? data.tamper);
+        const light_state = Boolean(data.light_state);
+        const energy_kwh = data.energy_kwh !== undefined ? Number(data.energy_kwh) : Number(((power_watts * 0.001 * (data.counter ?? 1)) / 120).toFixed(4));
+        const timestamp = data.timestamp || new Date().toISOString();
+
         const telemRecord = {
           pole_id: poleId,
           counter: data.counter ?? 0,
-          voltage: data.voltage ?? 230,
-          current: data.current ?? 0.8,
-          battery_soc: data.battery_soc ?? 90,
-          light_state: Boolean(data.light_state),
-          created_at: data.timestamp || new Date().toISOString(),
+          voltage,
+          current,
+          power_watts,
+          energy_kwh,
+          battery_voltage,
+          battery_temp,
+          state_of_charge: soc,
+          battery_soc: soc,
+          battery_current,
+          estimated_runtime_minutes,
+          ambient_light_lux,
+          brightness,
+          tamper_status,
+          light_state,
+          created_at: timestamp,
+          timestamp,
         };
 
         // 1. ⚡ HOT PATH: Instant WebSocket broadcast without DB latency
@@ -152,31 +180,43 @@ export function initMQTT() {
 
         // 3. 🚨 ISA-18.2 Alarm Engine Evaluation with Hysteresis Bands
         // Low Battery: Trip at < 20%, Clear at >= 25% (prevents oscillation chatter)
-        const isBatteryLow = telemRecord.battery_soc < 20;
-        const isBatteryHealthy = telemRecord.battery_soc >= 25;
+        const isBatteryLow = soc < 20;
+        const isBatteryHealthy = soc >= 25;
         await processAlarmLifecycle(
           poleId,
           'LOW_BATTERY',
           isBatteryLow,
           isBatteryHealthy,
           'CRITICAL',
-          `Battery level critically low (${telemRecord.battery_soc}%)`
+          `Battery level critically low (${soc}%)`
+        );
+
+        // High Battery Temperature: Trip at > 40°C, Clear at <= 36°C
+        const isTempHigh = battery_temp > 40.0;
+        const isTempNormal = battery_temp <= 36.0;
+        await processAlarmLifecycle(
+          poleId,
+          'BATTERY_OVERHEAT',
+          isTempHigh,
+          isTempNormal,
+          'WARNING',
+          `High battery temperature detected: ${battery_temp}°C`
         );
 
         // Voltage Anomaly: Trip at > 245V or < 205V, Clear at 210V - 240V
-        const isVoltageAnomaly = telemRecord.voltage > 245 || telemRecord.voltage < 205;
-        const isVoltageNormal = telemRecord.voltage >= 210 && telemRecord.voltage <= 240;
+        const isVoltageAnomaly = (voltage > 245 || (voltage < 205 && voltage > 0));
+        const isVoltageNormal = voltage >= 210 && voltage <= 240;
         await processAlarmLifecycle(
           poleId,
           'VOLTAGE_ANOMALY',
           isVoltageAnomaly,
           isVoltageNormal,
           'WARNING',
-          `Abnormal voltage detected: ${telemRecord.voltage}V`
+          `Abnormal voltage detected: ${voltage}V`
         );
 
         // Tamper / Physical security
-        if (data.tamper || data.alert_type === 'TAMPER_THEFT' || data.alert_type === 'TAMPER') {
+        if (tamper_status || data.alert_type === 'TAMPER_THEFT' || data.alert_type === 'TAMPER') {
           await processAlarmLifecycle(
             poleId,
             'TAMPER_THEFT',

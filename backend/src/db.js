@@ -33,10 +33,17 @@ export async function initDB(retries = 10, delayMs = 2000) {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS poles (
           pole_id VARCHAR PRIMARY KEY,
-          zone VARCHAR,
-          latitude FLOAT,
-          longitude FLOAT,
+          name VARCHAR NOT NULL,
+          cluster_id VARCHAR NOT NULL,
+          gateway_id VARCHAR NOT NULL,
+          latitude FLOAT NOT NULL,
+          longitude FLOAT NOT NULL,
+          zone VARCHAR NOT NULL,
           status VARCHAR DEFAULT 'ONLINE',
+          is_on BOOLEAN DEFAULT true,
+          brightness INT DEFAULT 100 CHECK (brightness >= 0 AND brightness <= 100),
+          battery_capacity_ah NUMERIC DEFAULT 100.0,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -46,7 +53,17 @@ export async function initDB(retries = 10, delayMs = 2000) {
           counter INT,
           voltage NUMERIC,
           current NUMERIC,
+          power_watts NUMERIC,
+          energy_kwh NUMERIC,
+          battery_voltage NUMERIC,
+          battery_temp NUMERIC,
+          state_of_charge INT,
           battery_soc INT,
+          battery_current NUMERIC,
+          estimated_runtime_minutes INT,
+          ambient_light_lux NUMERIC,
+          brightness INT,
+          tamper_status BOOLEAN DEFAULT false,
           light_state BOOLEAN,
           created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
@@ -76,9 +93,62 @@ export async function initDB(retries = 10, delayMs = 2000) {
           ALTER TABLE alerts ALTER COLUMN last_seen_at TYPE TIMESTAMPTZ;
           ALTER TABLE alerts ALTER COLUMN cleared_at TYPE TIMESTAMPTZ;
 
-          -- Poles table migrations
+          -- Poles table column migrations
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='name') THEN
+            ALTER TABLE poles ADD COLUMN name VARCHAR DEFAULT 'Smart Pole';
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='cluster_id') THEN
+            ALTER TABLE poles ADD COLUMN cluster_id VARCHAR DEFAULT 'CLUSTER-A';
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='gateway_id') THEN
+            ALTER TABLE poles ADD COLUMN gateway_id VARCHAR DEFAULT 'GATEWAY-01';
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='is_on') THEN
+            ALTER TABLE poles ADD COLUMN is_on BOOLEAN DEFAULT true;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='brightness') THEN
+            ALTER TABLE poles ADD COLUMN brightness INT DEFAULT 100;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='battery_capacity_ah') THEN
+            ALTER TABLE poles ADD COLUMN battery_capacity_ah NUMERIC DEFAULT 100.0;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='created_at') THEN
+            ALTER TABLE poles ADD COLUMN created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+          END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='poles' AND column_name='updated_at') THEN
             ALTER TABLE poles ADD COLUMN updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+          END IF;
+
+          -- Telemetry table column migrations
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='power_watts') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN power_watts NUMERIC;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='energy_kwh') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN energy_kwh NUMERIC;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='battery_voltage') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN battery_voltage NUMERIC;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='battery_temp') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN battery_temp NUMERIC;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='state_of_charge') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN state_of_charge INT;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='battery_current') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN battery_current NUMERIC;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='estimated_runtime_minutes') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN estimated_runtime_minutes INT;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='ambient_light_lux') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN ambient_light_lux NUMERIC;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='brightness') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN brightness INT;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='tamper_status') THEN
+            ALTER TABLE telemetry_logs ADD COLUMN tamper_status BOOLEAN DEFAULT false;
           END IF;
 
           -- Alerts table migrations
@@ -100,20 +170,50 @@ export async function initDB(retries = 10, delayMs = 2000) {
         END $$;
       `);
 
-      // 3. Performance composite indices
+      // 3. Performance composite indices & Seed 15 poles around Uttara Sector 18 / Diabari, Dhaka
       await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_telemetry_pole_created ON telemetry_logs (pole_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_alerts_pole_status ON alerts (pole_id, alert_type, status);
         CREATE INDEX IF NOT EXISTS idx_alerts_status_created ON alerts (status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_poles_cluster ON poles (cluster_id);
+        CREATE INDEX IF NOT EXISTS idx_poles_gateway ON poles (gateway_id);
 
-        INSERT INTO poles (pole_id, zone, latitude, longitude, status)
+        INSERT INTO poles (pole_id, name, cluster_id, gateway_id, latitude, longitude, zone, status, is_on, brightness, battery_capacity_ah, created_at)
         VALUES 
-          ('POLE-001', 'Zone North - Boulevard A', 23.8103, 90.4125, 'ONLINE'),
-          ('POLE-002', 'Zone South - Avenue 4', 23.7937, 90.4066, 'ONLINE')
-        ON CONFLICT (pole_id) DO NOTHING;
+          -- Cluster A: Gate 1 - Diabari Metro Rail Avenue (GATEWAY-01, Straight North-South Line)
+          ('POLE-001', 'Metro Line 6 North Entry', 'CLUSTER-A', 'GATEWAY-01', 23.8720, 90.3800, 'Metro Rail Line 6 Avenue', 'ONLINE', true, 100, 120.0, NOW()),
+          ('POLE-002', 'Metro Gate 1 South Plaza', 'CLUSTER-A', 'GATEWAY-01', 23.8728, 90.3800, 'Metro Rail Line 6 Avenue', 'ONLINE', true, 100, 120.0, NOW()),
+          ('POLE-003', 'Diabari Concourse East', 'CLUSTER-A', 'GATEWAY-01', 23.8736, 90.3800, 'Metro Rail Line 6 Avenue', 'ONLINE', true, 100, 100.0, NOW()),
+          ('POLE-004', 'Diabari Concourse West', 'CLUSTER-A', 'GATEWAY-01', 23.8744, 90.3800, 'Metro Rail Line 6 Avenue', 'ONLINE', true, 90, 100.0, NOW()),
+          ('POLE-005', 'Metro Station Bus Bay', 'CLUSTER-A', 'GATEWAY-01', 23.8752, 90.3800, 'Metro Rail Line 6 Avenue', 'ONLINE', true, 100, 150.0, NOW()),
+
+          -- Cluster B: Sonargaon Janapath Extension (GATEWAY-02, Straight East-West Line)
+          ('POLE-006', 'Sonargaon Janapath Post 01', 'CLUSTER-B', 'GATEWAY-02', 23.8720, 90.3820, 'Sonargaon Janapath Extension', 'ONLINE', true, 100, 120.0, NOW()),
+          ('POLE-007', 'Sonargaon Janapath Post 02', 'CLUSTER-B', 'GATEWAY-02', 23.8720, 90.3835, 'Sonargaon Janapath Extension', 'ONLINE', true, 100, 120.0, NOW()),
+          ('POLE-008', 'Sector 18 Avenue Intersection', 'CLUSTER-B', 'GATEWAY-02', 23.8720, 90.3850, 'Sonargaon Janapath Extension', 'ONLINE', true, 100, 150.0, NOW()),
+          ('POLE-009', 'Sonargaon East Corridor 01', 'CLUSTER-B', 'GATEWAY-02', 23.8720, 90.3865, 'Sonargaon Janapath Extension', 'ONLINE', true, 80, 100.0, NOW()),
+          ('POLE-010', 'Sonargaon East Corridor 02', 'CLUSTER-B', 'GATEWAY-02', 23.8720, 90.3880, 'Sonargaon Janapath Extension', 'ONLINE', true, 80, 100.0, NOW()),
+
+          -- Cluster C: Diabari Bridge & Lake Road (GATEWAY-03, Straight Diagonal Lake Drive Line)
+          ('POLE-011', 'Diabari Bridge Approach North', 'CLUSTER-C', 'GATEWAY-03', 23.8756, 90.3792, 'Diabari Bridge & Lake Road', 'ONLINE', true, 100, 150.0, NOW()),
+          ('POLE-012', 'Diabari Bridge Center Span', 'CLUSTER-C', 'GATEWAY-03', 23.8764, 90.3784, 'Diabari Bridge & Lake Road', 'ONLINE', true, 100, 150.0, NOW()),
+          ('POLE-013', 'Diabari Bridge Approach South', 'CLUSTER-C', 'GATEWAY-03', 23.8772, 90.3776, 'Diabari Bridge & Lake Road', 'ONLINE', true, 100, 150.0, NOW()),
+          ('POLE-014', 'Lake Drive Promenade 01', 'CLUSTER-C', 'GATEWAY-03', 23.8780, 90.3768, 'Diabari Bridge & Lake Road', 'ONLINE', true, 85, 100.0, NOW()),
+          ('POLE-015', 'Lake Drive Promenade 02', 'CLUSTER-C', 'GATEWAY-03', 23.8788, 90.3760, 'Diabari Bridge & Lake Road', 'ONLINE', true, 85, 100.0, NOW())
+        ON CONFLICT (pole_id) DO UPDATE SET 
+          name = EXCLUDED.name,
+          cluster_id = EXCLUDED.cluster_id,
+          gateway_id = EXCLUDED.gateway_id,
+          latitude = EXCLUDED.latitude,
+          longitude = EXCLUDED.longitude,
+          zone = EXCLUDED.zone,
+          status = EXCLUDED.status,
+          is_on = EXCLUDED.is_on,
+          brightness = EXCLUDED.brightness,
+          battery_capacity_ah = EXCLUDED.battery_capacity_ah;
       `);
 
-      console.log('✅ [Database] Schema verified & indices configured');
+      console.log('✅ [Database] Schema verified & indices configured with 15 Uttara Sector 18 poles');
       return true;
     } catch (err) {
       console.warn(`⚠️ [Database] Connection not ready (${err.message}). Retrying in ${delayMs / 1000}s...`);
@@ -133,19 +233,56 @@ export async function getPoles() {
   const query = `
     SELECT 
       p.pole_id,
-      p.zone,
+      p.name,
+      p.cluster_id,
+      p.gateway_id,
+      CASE p.gateway_id
+        WHEN 'GATEWAY-01' THEN 23.8736
+        WHEN 'GATEWAY-02' THEN 23.8720
+        ELSE 23.8772
+      END AS gateway_latitude,
+      CASE p.gateway_id
+        WHEN 'GATEWAY-01' THEN 90.3800
+        WHEN 'GATEWAY-02' THEN 90.3850
+        ELSE 90.3776
+      END AS gateway_longitude,
+      CASE p.cluster_id
+        WHEN 'CLUSTER-A' THEN 'Cluster A (Diabari Metro Rail Area)'
+        WHEN 'CLUSTER-B' THEN 'Cluster B (Sonargaon Janapath Extension)'
+        ELSE 'Cluster C (Diabari Bridge & Lake Road)'
+      END AS cluster_name,
       p.latitude,
       p.longitude,
+      p.zone,
       p.status,
+      p.is_on,
+      p.brightness,
+      p.battery_capacity_ah,
+      p.created_at,
+      p.updated_at,
       t.counter AS latest_counter,
       t.voltage AS latest_voltage,
       t.current AS latest_current,
-      t.battery_soc AS latest_battery_soc,
+      t.power_watts AS latest_power_watts,
+      t.energy_kwh AS latest_energy_kwh,
+      t.battery_voltage AS latest_battery_voltage,
+      t.battery_temp AS latest_battery_temp,
+      COALESCE(t.state_of_charge, t.battery_soc) AS latest_battery_soc,
+      COALESCE(t.state_of_charge, t.battery_soc) AS latest_state_of_charge,
+      t.battery_current AS latest_battery_current,
+      t.estimated_runtime_minutes AS latest_estimated_runtime_minutes,
+      t.ambient_light_lux AS latest_ambient_light_lux,
+      t.brightness AS latest_brightness,
+      t.tamper_status AS latest_tamper_status,
       t.light_state AS latest_light_state,
       t.created_at AS last_seen
     FROM poles p
     LEFT JOIN LATERAL (
-      SELECT counter, voltage, current, battery_soc, light_state, created_at
+      SELECT 
+        counter, voltage, current, power_watts, energy_kwh,
+        battery_voltage, battery_temp, state_of_charge, battery_soc, battery_current,
+        estimated_runtime_minutes, ambient_light_lux, brightness, tamper_status,
+        light_state, created_at
       FROM telemetry_logs
       WHERE pole_id = p.pole_id
       ORDER BY created_at DESC
@@ -172,15 +309,15 @@ export async function bulkSaveTelemetry(records) {
   for (const pid of uniquePoles) {
     try {
       await pool.query(
-        `INSERT INTO poles (pole_id, zone, latitude, longitude, status, updated_at)
-         VALUES ($1, 'Auto-Discovered', 23.8103, 90.4125, 'ONLINE', CURRENT_TIMESTAMP)
+        `INSERT INTO poles (pole_id, name, cluster_id, gateway_id, zone, latitude, longitude, status, updated_at)
+         VALUES ($1, $1, 'CLUSTER-A', 'GATEWAY-01', 'Uttara Sector 18', 23.8759, 90.3795, 'ONLINE', CURRENT_TIMESTAMP)
          ON CONFLICT (pole_id) DO UPDATE SET status = 'ONLINE', updated_at = CURRENT_TIMESTAMP;`,
         [pid]
       );
     } catch {
       await pool.query(
-        `INSERT INTO poles (pole_id, zone, latitude, longitude, status)
-         VALUES ($1, 'Auto-Discovered', 23.8103, 90.4125, 'ONLINE')
+        `INSERT INTO poles (pole_id, name, cluster_id, gateway_id, zone, latitude, longitude, status)
+         VALUES ($1, $1, 'CLUSTER-A', 'GATEWAY-01', 'Uttara Sector 18', 23.8759, 90.3795, 'ONLINE')
          ON CONFLICT (pole_id) DO UPDATE SET status = 'ONLINE';`,
         [pid]
       );
@@ -193,21 +330,54 @@ export async function bulkSaveTelemetry(records) {
   let paramIndex = 1;
 
   for (const r of records) {
+    const voltage = Number(r.voltage ?? 230);
+    const current = Number(r.current ?? 0.8);
+    const power_watts = r.power_watts !== undefined ? Number(r.power_watts) : Number((voltage * current).toFixed(1));
+    const energy_kwh = r.energy_kwh !== undefined ? Number(r.energy_kwh) : Number(((power_watts * 0.001 * (r.counter ?? 1)) / 120).toFixed(4));
+    const soc = Number(r.state_of_charge ?? r.battery_soc ?? 90);
+    const battery_voltage = r.battery_voltage !== undefined ? Number(r.battery_voltage) : Number((12.0 + (soc / 100) * 2.4).toFixed(2));
+    const battery_temp = r.battery_temp !== undefined ? Number(r.battery_temp) : 28.5;
+    const battery_current = r.battery_current !== undefined ? Number(r.battery_current) : (r.light_state ? -1.8 : 2.2);
+    const brightness = r.brightness !== undefined ? Number(r.brightness) : (r.light_state ? 100 : 0);
+    const estimated_runtime_minutes = r.estimated_runtime_minutes !== undefined 
+      ? Number(r.estimated_runtime_minutes)
+      : Math.round((soc / 100) * 120 * (12.0 / Math.max(power_watts, 10)) * 60);
+    const ambient_light_lux = r.ambient_light_lux !== undefined ? Number(r.ambient_light_lux) : (r.light_state ? 15 : 450);
+    const tamper_status = Boolean(r.tamper_status ?? r.tamper);
+    const light_state = Boolean(r.light_state);
+    const createdAt = r.created_at || r.timestamp || new Date().toISOString();
+
     valuePlaceholders.push(
-      `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
+      `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
     );
     queryParams.push(
       r.pole_id,
       r.counter ?? 0,
-      r.voltage ?? 230,
-      r.current ?? 0.8,
-      r.battery_soc ?? 90,
-      Boolean(r.light_state)
+      voltage,
+      current,
+      power_watts,
+      energy_kwh,
+      battery_voltage,
+      battery_temp,
+      soc,
+      soc, // battery_soc
+      battery_current,
+      estimated_runtime_minutes,
+      ambient_light_lux,
+      brightness,
+      tamper_status,
+      light_state,
+      createdAt
     );
   }
 
   const query = `
-    INSERT INTO telemetry_logs (pole_id, counter, voltage, current, battery_soc, light_state)
+    INSERT INTO telemetry_logs (
+      pole_id, counter, voltage, current, power_watts, energy_kwh,
+      battery_voltage, battery_temp, state_of_charge, battery_soc, battery_current,
+      estimated_runtime_minutes, ambient_light_lux, brightness, tamper_status,
+      light_state, created_at
+    )
     VALUES ${valuePlaceholders.join(', ')}
     RETURNING *;
   `;
@@ -349,6 +519,77 @@ export async function getRecentAlerts(limit = 30, status = null) {
 
   const result = await pool.query(query, params);
   return result.rows;
+}
+
+/**
+ * Update custom position (latitude, longitude) of a pole
+ */
+export async function updatePolePosition(pole_id, latitude, longitude) {
+  const query = `
+    UPDATE poles
+    SET latitude = $1, longitude = $2, updated_at = CURRENT_TIMESTAMP
+    WHERE pole_id = $3
+    RETURNING *;
+  `;
+  const result = await pool.query(query, [Number(latitude), Number(longitude), pole_id]);
+  return result.rows[0];
+}
+
+/**
+ * Create a new custom pole or update full pole definition
+ */
+export async function createOrUpdatePole(data) {
+  const {
+    pole_id,
+    name = `Smart Pole ${pole_id}`,
+    cluster_id = 'CLUSTER-A',
+    gateway_id = 'GATEWAY-01',
+    latitude,
+    longitude,
+    zone = 'Uttara Sector 18',
+    status = 'ONLINE',
+    is_on = true,
+    brightness = 100,
+    battery_capacity_ah = 120.0,
+  } = data;
+
+  const query = `
+    INSERT INTO poles (pole_id, name, cluster_id, gateway_id, latitude, longitude, zone, status, is_on, brightness, battery_capacity_ah, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+    ON CONFLICT (pole_id) DO UPDATE SET
+      name = EXCLUDED.name,
+      cluster_id = EXCLUDED.cluster_id,
+      gateway_id = EXCLUDED.gateway_id,
+      latitude = EXCLUDED.latitude,
+      longitude = EXCLUDED.longitude,
+      zone = EXCLUDED.zone,
+      status = EXCLUDED.status,
+      battery_capacity_ah = EXCLUDED.battery_capacity_ah,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING *;
+  `;
+  const result = await pool.query(query, [
+    pole_id,
+    name,
+    cluster_id,
+    gateway_id,
+    Number(latitude),
+    Number(longitude),
+    zone,
+    status,
+    is_on,
+    brightness,
+    battery_capacity_ah,
+  ]);
+  return result.rows[0];
+}
+
+/**
+ * Delete a custom pole
+ */
+export async function deletePole(pole_id) {
+  const result = await pool.query('DELETE FROM poles WHERE pole_id = $1 RETURNING *;', [pole_id]);
+  return result.rows[0];
 }
 
 /**

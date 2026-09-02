@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import Map, { Marker, NavigationControl, Popup, Source, Layer } from 'react-map-gl/maplibre';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import {
   Lightbulb,
+  LightbulbOff,
   Zap,
   Battery,
   BatteryCharging,
@@ -14,10 +17,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   CheckCircle,
-  CheckCircle2,
-  CheckCheck,
   Cpu,
-  ArrowUpRight,
+  Server,
+  Network,
+  Share2,
   Sun,
   Moon,
   Sliders,
@@ -27,23 +30,40 @@ import {
   Filter,
   Bell,
   Settings,
-  User,
   Navigation,
   Layers,
-  ChevronDown,
+  ChevronRight,
   Compass,
   Plus,
   Minus,
   Crosshair,
   TrendingUp,
-  X
+  X,
+  Copy,
+  Check,
+  Flame,
+  Thermometer,
+  Eye,
+  SlidersHorizontal,
+  Table as TableIcon,
+  Move,
+  Edit3,
+  Trash2,
+  PlusCircle,
+  Navigation2,
+  Target,
+  Save,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  Wifi,
+  BarChart3,
+  User
 } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -51,7 +71,201 @@ import {
   Legend
 } from 'recharts';
 
-export function formatLocalTime(timestamp) {
+// Cluster Master Poles (Sensor Gateway & Telemetry Concentrator Poles - Not Street Lamps)
+// Connected to all neighbor street lamp poles in their respective cluster and sends aggregated data to the server
+const GATEWAYS = [
+  {
+    id: 'GATEWAY-01',
+    pole_id: 'CLUSTER-POLE-A',
+    name: 'Cluster Pole 01 (Sensor & Gateway Hub)',
+    type: 'CLUSTER_MASTER_POLE',
+    cluster_id: 'CLUSTER-A',
+    cluster_name: 'Cluster A (Diabari Metro Rail Area)',
+    zone: 'Metro Rail Line 6 Avenue',
+    lat: 23.8736,
+    lng: 90.3784,
+    rangeMeters: 450,
+    uplink: '4G LTE / MQTT Active',
+    connectedNodesCount: 5,
+    role: 'Sensor Aggregator & Server Uplink (Not a Luminaire Lamp)',
+    firmware: 'v3.8.4-gateway-mesh',
+    sensorTypes: ['Ambient Lux (0-65k lx)', 'Environmental Temp & Humidity', 'Grid Frequency & Power Meter', 'Vibration & Theft Sensor'],
+  },
+  {
+    id: 'GATEWAY-02',
+    pole_id: 'CLUSTER-POLE-B',
+    name: 'Cluster Pole 02 (Sensor & Gateway Hub)',
+    type: 'CLUSTER_MASTER_POLE',
+    cluster_id: 'CLUSTER-B',
+    cluster_name: 'Cluster B (Sonargaon Janapath Extension)',
+    zone: 'Sonargaon Janapath Extension',
+    lat: 23.8736,
+    lng: 90.3850,
+    rangeMeters: 550,
+    uplink: '4G LTE / MQTT Active',
+    connectedNodesCount: 5,
+    role: 'Sensor Aggregator & Server Uplink (Not a Luminaire Lamp)',
+    firmware: 'v3.8.4-gateway-mesh',
+    sensorTypes: ['Ambient Lux (0-65k lx)', 'Environmental Temp & Humidity', 'Grid Frequency & Power Meter', 'Vibration & Theft Sensor'],
+  },
+  {
+    id: 'GATEWAY-03',
+    pole_id: 'CLUSTER-POLE-C',
+    name: 'Cluster Pole 03 (Sensor & Gateway Hub)',
+    type: 'CLUSTER_MASTER_POLE',
+    cluster_id: 'CLUSTER-C',
+    cluster_name: 'Cluster C (Diabari Bridge & Lake Road)',
+    zone: 'Diabari Bridge & Lake Road',
+    lat: 23.8765,
+    lng: 90.3755,
+    rangeMeters: 500,
+    uplink: '4G LTE / MQTT Active',
+    connectedNodesCount: 5,
+    role: 'Sensor Aggregator & Server Uplink (Not a Luminaire Lamp)',
+    firmware: 'v3.8.4-gateway-mesh',
+    sensorTypes: ['Ambient Lux (0-65k lx)', 'Environmental Temp & Humidity', 'Grid Frequency & Power Meter', 'Vibration & Theft Sensor'],
+  },
+];
+
+// Styling per Cluster: All Cluster Master Poles are Purple, all Street Lamps are Yellow
+const CLUSTER_META = {
+  'CLUSTER-A': {
+    label: 'Cluster A (Metro)',
+    color: '#8b5cf6', // Cluster Master Hub is Purple
+    accent: '#7c3aed',
+    badge: 'bg-purple-50 text-purple-700 border-purple-200',
+    dot: 'bg-purple-600',
+    ring: 'border-purple-500/40 bg-purple-500/10',
+    glow: 'bg-purple-400/35',
+    activeIconColor: 'text-purple-600 fill-purple-400',
+  },
+  'CLUSTER-B': {
+    label: 'Cluster B (Sonargaon)',
+    color: '#8b5cf6', // Cluster Master Hub is Purple
+    accent: '#7c3aed',
+    badge: 'bg-purple-50 text-purple-700 border-purple-200',
+    dot: 'bg-purple-600',
+    ring: 'border-purple-500/40 bg-purple-500/10',
+    glow: 'bg-purple-400/35',
+    activeIconColor: 'text-purple-600 fill-purple-400',
+  },
+  'CLUSTER-C': {
+    label: 'Cluster C (Diabari)',
+    color: '#8b5cf6', // Cluster Master Hub is Purple
+    accent: '#7c3aed',
+    badge: 'bg-purple-50 text-purple-700 border-purple-200',
+    dot: 'bg-purple-600',
+    ring: 'border-purple-500/40 bg-purple-500/10',
+    glow: 'bg-purple-400/35',
+    activeIconColor: 'text-purple-600 fill-purple-400',
+  },
+};
+
+// Official CARTO Basemaps API Key (Watermark-free)
+const CARTO_API_KEY = 'cb1_2rk8_1_47edd3fb0c363b42ebf95213';
+
+// High-Performance MapLibre GIS Basemap Layers
+const MAP_STYLES = {
+  positron: {
+    version: 8,
+    sources: {
+      'carto-positron': {
+        type: 'raster',
+        tiles: [
+          `https://a.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://b.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://c.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://d.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+        ],
+        tileSize: 256,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      },
+    },
+    layers: [
+      {
+        id: 'carto-positron-layer',
+        type: 'raster',
+        source: 'carto-positron',
+        minzoom: 0,
+        maxzoom: 20,
+      },
+    ],
+  },
+  dark: {
+    version: 8,
+    sources: {
+      'carto-dark': {
+        type: 'raster',
+        tiles: [
+          `https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+        ],
+        tileSize: 256,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      },
+    },
+    layers: [
+      {
+        id: 'carto-dark-layer',
+        type: 'raster',
+        source: 'carto-dark',
+        minzoom: 0,
+        maxzoom: 20,
+      },
+    ],
+  },
+  voyager: {
+    version: 8,
+    sources: {
+      'carto-voyager': {
+        type: 'raster',
+        tiles: [
+          `https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+          `https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
+        ],
+        tileSize: 256,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      },
+    },
+    layers: [
+      {
+        id: 'carto-voyager-layer',
+        type: 'raster',
+        source: 'carto-voyager',
+        minzoom: 0,
+        maxzoom: 20,
+      },
+    ],
+  },
+  satellite: {
+    version: 8,
+    sources: {
+      'esri-sat': {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        ],
+        tileSize: 256,
+        attribution: '&copy; Esri World Imagery',
+      },
+    },
+    layers: [
+      {
+        id: 'esri-sat-layer',
+        type: 'raster',
+        source: 'esri-sat',
+        minzoom: 0,
+        maxzoom: 19,
+      },
+    ],
+  },
+};
+
+export function formatTime(timestamp) {
   if (!timestamp) return '--:--:--';
   let str = String(timestamp).trim();
   if (!str.endsWith('Z') && !str.includes('+') && !/-\d\d:\d\d$/.test(str) && !/GMT|UTC/i.test(str)) {
@@ -63,48 +277,124 @@ export function formatLocalTime(timestamp) {
     : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+export function formatRuntime(mins) {
+  if (!mins || mins <= 0) return '0m';
+  const hours = Math.floor(mins / 60);
+  const m = mins % 60;
+  return hours > 0 ? `${hours}h ${m}m` : `${m}m`;
+}
+
 export default function App() {
+  // State: Navigation & Modals
+  const [navTab, setNavTab] = useState('MAP'); // 'MAP' | 'POLES' | 'ALERTS' | 'ANALYTICS'
+  const [mapStyleKey, setMapStyleKey] = useState('positron');
+  const [clusterFilter, setClusterFilter] = useState('ALL'); // 'ALL' | 'CLUSTER-A' | 'CLUSTER-B' | 'CLUSTER-C' | 'TAMPER'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [copiedCoords, setCopiedCoords] = useState(false);
+
+  // State: Core IoT Data
   const [poles, setPoles] = useState([]);
-  const [selectedPole, setSelectedPole] = useState('POLE-001');
+  const [selectedPoleId, setSelectedPoleId] = useState('POLE-001');
+  const [drawerOpen, setDrawerOpen] = useState(true);
   const [telemetryHistory, setTelemetryHistory] = useState([]);
   const [alerts, setAlerts] = useState([]);
-  const [alertFilter, setAlertFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'CLEARED' | 'CRITICAL'
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('DASHBOARD');
-  const [highlightedSection, setHighlightedSection] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
-  const [isToggling, setIsToggling] = useState({});
-  const [dimmerValues, setDimmerValues] = useState({});
-  const [tamperState, setTamperState] = useState({});
-  const [clearState, setClearState] = useState({});
+  const [lastHeartbeat, setLastHeartbeat] = useState(new Date());
+  const [hoveredPole, setHoveredPole] = useState(null);
   const [toastStack, setToastStack] = useState([]);
 
+  // Local Dimmer & Actuation States
+  const [dimmerValues, setDimmerValues] = useState({});
+  const [isDebouncingControl, setIsDebouncingControl] = useState(false);
+
+  // Custom Position & Pole Management States
+  const [isRepositionMode, setIsRepositionMode] = useState(false);
+  const [isAddingPole, setIsAddingPole] = useState(false);
+  const [isEditingCoords, setIsEditingCoords] = useState(false);
+  const [isPickingCoordsOnMap, setIsPickingCoordsOnMap] = useState(false);
+  const [coordsInput, setCoordsInput] = useState({ lat: '', lng: '' });
+  const [newPoleForm, setNewPoleForm] = useState({
+    pole_id: '',
+    name: '',
+    cluster_id: 'CLUSTER-A',
+    gateway_id: 'GATEWAY-01',
+    latitude: 23.8735,
+    longitude: 90.3815,
+    zone: 'Uttara Sector 18',
+    battery_capacity_ah: 120,
+  });
+
+  // Map viewport reference
+  const mapRef = useRef(null);
+  const selectedPoleRef = useRef(selectedPoleId);
   const wsRef = useRef(null);
-  const selectedPoleRef = useRef(selectedPole);
+  const debounceTimerRef = useRef(null);
 
-  // Sync selectedPoleRef
+  // Sync ref
   useEffect(() => {
-    selectedPoleRef.current = selectedPole;
-    fetchTelemetryHistory(selectedPole);
-  }, [selectedPole]);
+    selectedPoleRef.current = selectedPoleId;
+  }, [selectedPoleId]);
 
-  // Stacked Persistent Toast Helper (Deduplicates identical alerts; only closes when [X] is clicked)
-  const showToast = (title, msg, type = 'info') => {
+  // Selected pole or cluster master pole object
+  const selectedPole = useMemo(() => {
+    const fromPoles = poles.find((p) => p.pole_id === selectedPoleId);
+    if (fromPoles) return fromPoles;
+
+    const fromGateways = GATEWAYS.find((g) => g.id === selectedPoleId || g.pole_id === selectedPoleId);
+    if (fromGateways) {
+      return {
+        ...fromGateways,
+        latitude: fromGateways.lat,
+        longitude: fromGateways.lng,
+        is_on: false,
+        latest_light_state: false,
+        status: 'ONLINE',
+      };
+    }
+
+    return poles[0] || null;
+  }, [poles, selectedPoleId]);
+
+  // Sync manual coordinate inputs whenever selected pole changes
+  useEffect(() => {
+    if (selectedPole) {
+      setCoordsInput({
+        lat: selectedPole.latitude !== undefined ? Number(selectedPole.latitude).toFixed(6) : '23.874000',
+        lng: selectedPole.longitude !== undefined ? Number(selectedPole.longitude).toFixed(6) : '90.380000',
+      });
+      setIsEditingCoords(false);
+      setIsPickingCoordsOnMap(false);
+    }
+  }, [selectedPoleId, selectedPole?.latitude, selectedPole?.longitude]);
+
+  // Push Toast Alert with Automatic Fade-Away Timer & Smart Incident Deduplication
+  const pushToast = useCallback((title, msg, type = 'info', poleId = null) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setToastStack((prev) => {
-      const isDuplicate = prev.some((t) => t.msg === msg);
-      if (isDuplicate) return prev; // Prevent duplicate popup for active issue
+      // Deduplicate by message or identical title+poleId
+      const isDuplicate = prev.some(
+        (t) => t.msg === msg || (poleId && t.poleId === poleId && t.title === title)
+      );
+      if (isDuplicate) return prev;
 
       const newToast = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id,
         title,
         msg,
         type,
+        poleId,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       };
-      return [newToast, ...prev.slice(0, 3)];
+      // Keep maximum 2 toasts visible at a time so screen is never cluttered
+      return [newToast, ...prev.slice(0, 1)];
     });
-  };
+
+    // Auto fade away after timeout (4.5s for info/success, 5.5s for danger)
+    const timeout = type === 'danger' ? 5500 : 4000;
+    setTimeout(() => {
+      setToastStack((prev) => prev.filter((t) => t.id !== id));
+    }, timeout);
+  }, []);
 
   const dismissToast = (id) => {
     setToastStack((prev) => prev.filter((t) => t.id !== id));
@@ -115,55 +405,92 @@ export default function App() {
     try {
       const [polesRes, alertsRes] = await Promise.all([
         fetch('/api/poles').then((r) => r.json()),
-        fetch('/api/alerts').then((r) => r.json())
+        fetch('/api/alerts').then((r) => r.json()),
       ]);
 
       if (polesRes.success && polesRes.data) {
         setPoles(polesRes.data);
         const dimmers = {};
         polesRes.data.forEach((p) => {
-          dimmers[p.pole_id] = p.latest_light_state ? 100 : 0;
+          dimmers[p.pole_id] = p.brightness !== undefined ? p.brightness : (p.latest_light_state ? 100 : 0);
         });
         setDimmerValues((prev) => ({ ...dimmers, ...prev }));
       }
+
       if (alertsRes.success && alertsRes.data) {
         setAlerts(alertsRes.data);
       }
-      setLastUpdated(new Date());
+      setLastHeartbeat(new Date());
     } catch (err) {
-      console.warn('API Fetch error:', err.message);
+      console.warn('[Dashboard Fetch Error]:', err.message);
     }
   };
 
-  // 2. Fetch telemetry history for selected pole
-  const fetchTelemetryHistory = async (poleId) => {
+  // 2. Fetch rolling history for a selected pole
+  const fetchPoleHistory = async (poleId) => {
     try {
-      const res = await fetch(`/api/poles/${poleId}/telemetry?limit=25`).then((r) => r.json());
+      const res = await fetch(`/api/poles/${poleId}/history?limit=30`).then((r) => r.json());
       if (res.success && res.data) {
         const formatted = res.data.map((item) => {
           const v = Number(item.voltage) || 230;
           const i = Number(item.current) || 0.8;
+          const p = item.power_watts !== undefined ? Number(item.power_watts) : Number((v * i).toFixed(1));
+          const soc = item.state_of_charge !== undefined ? Number(item.state_of_charge) : (Number(item.battery_soc) || 85);
           return {
             ...item,
-            time: formatLocalTime(item.created_at),
+            time: formatTime(item.created_at),
             voltage: Number(v.toFixed(1)),
             current: Number(i.toFixed(2)),
-            battery_soc: Number(item.battery_soc) || 85,
-            power: Number((v * i).toFixed(1)),
+            power_watts: p,
+            power: p,
+            state_of_charge: soc,
+            battery_soc: soc,
+            battery_voltage: item.battery_voltage !== undefined ? Number(item.battery_voltage) : Number((12.0 + (soc / 100) * 2.4).toFixed(2)),
+            battery_temp: item.battery_temp !== undefined ? Number(item.battery_temp) : 28.5,
+            battery_current: item.battery_current !== undefined ? Number(item.battery_current) : -1.8,
+            estimated_runtime_minutes: item.estimated_runtime_minutes !== undefined ? Number(item.estimated_runtime_minutes) : 450,
           };
         });
         setTelemetryHistory(formatted);
       }
     } catch (err) {
-      console.warn('Telemetry fetch error:', err.message);
+      console.warn('[History Fetch Warning]:', err.message);
     }
   };
 
-  // 3. Resilient Singleton WebSocket lifecycle
+  // 3. Selection change effect: fetch history & fly to coordinates
+  useEffect(() => {
+    if (selectedPoleId) {
+      fetchPoleHistory(selectedPoleId);
+    }
+  }, [selectedPoleId]);
+
+  // Smoothly focus map camera on pole
+  const focusOnPole = useCallback((pole) => {
+    if (!pole) return;
+    setSelectedPoleId(pole.pole_id);
+    setDrawerOpen(true);
+
+    if (mapRef.current) {
+      mapRef.current.flyTo({
+        center: [pole.longitude, pole.latitude],
+        zoom: 16.2,
+        pitch: 60,
+        bearing: -15,
+        duration: 900,
+        essential: true,
+      });
+    }
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'SELECT_POLE', pole_id: pole.pole_id }));
+    }
+  }, []);
+
+  // 4. WebSocket Lifecycle
   useEffect(() => {
     let isMounted = true;
     let reconnectTimeout = null;
-    let pollingInterval = null;
 
     fetchData();
 
@@ -181,6 +508,9 @@ export default function App() {
         ws.onopen = () => {
           if (!isMounted) return;
           setWsConnected(true);
+          if (selectedPoleRef.current) {
+            ws.send(JSON.stringify({ type: 'SELECT_POLE', pole_id: selectedPoleRef.current }));
+          }
         };
 
         ws.onmessage = (event) => {
@@ -195,36 +525,57 @@ export default function App() {
                   if (p.pole_id === incoming.pole_id) {
                     return {
                       ...p,
-                      status: 'ONLINE',
+                      status: incoming.tamper_status ? 'TAMPER/CRITICAL' : 'ONLINE',
                       latest_counter: incoming.counter,
                       latest_voltage: incoming.voltage !== undefined ? incoming.voltage : p.latest_voltage,
                       latest_current: incoming.current !== undefined ? incoming.current : p.latest_current,
-                      latest_battery_soc: incoming.battery_soc !== undefined ? incoming.battery_soc : p.latest_battery_soc,
+                      latest_power_watts: incoming.power_watts !== undefined ? incoming.power_watts : p.latest_power_watts,
+                      latest_energy_kwh: incoming.energy_kwh !== undefined ? incoming.energy_kwh : p.latest_energy_kwh,
+                      latest_battery_voltage: incoming.battery_voltage !== undefined ? incoming.battery_voltage : p.latest_battery_voltage,
+                      latest_battery_temp: incoming.battery_temp !== undefined ? incoming.battery_temp : p.latest_battery_temp,
+                      latest_battery_soc: incoming.battery_soc !== undefined ? incoming.battery_soc : (incoming.state_of_charge !== undefined ? incoming.state_of_charge : p.latest_battery_soc),
+                      latest_state_of_charge: incoming.state_of_charge !== undefined ? incoming.state_of_charge : p.latest_state_of_charge,
+                      latest_battery_current: incoming.battery_current !== undefined ? incoming.battery_current : p.latest_battery_current,
+                      latest_estimated_runtime_minutes: incoming.estimated_runtime_minutes !== undefined ? incoming.estimated_runtime_minutes : p.latest_estimated_runtime_minutes,
+                      latest_ambient_light_lux: incoming.ambient_light_lux !== undefined ? incoming.ambient_light_lux : p.latest_ambient_light_lux,
+                      latest_brightness: incoming.brightness !== undefined ? incoming.brightness : p.latest_brightness,
+                      latest_tamper_status: incoming.tamper_status !== undefined ? incoming.tamper_status : p.latest_tamper_status,
                       latest_light_state: incoming.light_state !== undefined ? incoming.light_state : p.latest_light_state,
-                      last_seen: incoming.created_at,
+                      last_seen: incoming.created_at || new Date().toISOString(),
                     };
                   }
                   return p;
                 })
               );
 
+              // If for selected pole, append to chart history
               if (incoming.pole_id === selectedPoleRef.current) {
                 setTelemetryHistory((prev) => {
                   const v = incoming.voltage !== undefined ? Number(incoming.voltage) : 230;
                   const i = incoming.current !== undefined ? Number(incoming.current) : 0.8;
+                  const calcPower = incoming.power_watts !== undefined ? Number(incoming.power_watts) : Number((v * i).toFixed(1));
+                  const lastSoc = prev.length > 0 ? (prev[prev.length - 1].battery_soc ?? 90) : 90;
+                  const soc = incoming.state_of_charge !== undefined ? Number(incoming.state_of_charge) : (incoming.battery_soc !== undefined ? Number(incoming.battery_soc) : lastSoc);
                   const newPoint = {
                     ...incoming,
-                    time: formatLocalTime(incoming.created_at || Date.now()),
+                    time: formatTime(incoming.created_at || Date.now()),
                     voltage: Number(v.toFixed(1)),
                     current: Number(i.toFixed(2)),
-                    battery_soc: incoming.battery_soc !== undefined ? Number(incoming.battery_soc) : 80,
-                    power: Number((v * i).toFixed(1)),
+                    power_watts: calcPower,
+                    power: calcPower,
+                    state_of_charge: soc,
+                    battery_soc: soc,
+                    battery_voltage: incoming.battery_voltage !== undefined ? Number(incoming.battery_voltage) : Number((12.0 + (soc / 100) * 2.4).toFixed(2)),
+                    battery_temp: incoming.battery_temp !== undefined ? Number(incoming.battery_temp) : 28.5,
+                    battery_current: incoming.battery_current !== undefined ? Number(incoming.battery_current) : -1.8,
+                    estimated_runtime_minutes: incoming.estimated_runtime_minutes !== undefined ? Number(incoming.estimated_runtime_minutes) : 450,
                   };
-                  return [...prev, newPoint].slice(-25);
+                  return [...prev, newPoint].slice(-30);
                 });
               }
-              setLastUpdated(new Date());
-            } else if (message.type === 'ALERT_TRIGGERED') {
+
+              setLastHeartbeat(new Date());
+            } else if (message.type === 'ALERT_TRIGGERED' || message.type === 'ALERT') {
               const incomingAlert = message.data;
               setAlerts((prev) => {
                 const existingIndex = prev.findIndex((a) => a.id === incomingAlert.id);
@@ -235,19 +586,9 @@ export default function App() {
                 }
                 return [incomingAlert, ...prev.slice(0, 49)];
               });
-              showToast('Security Alert', `${incomingAlert.pole_id}: ${incomingAlert.message}`, 'danger');
-            } else if (message.type === 'ALERT_UPDATED' || message.type === 'ALERT') {
-              const incomingAlert = message.data;
-              setAlerts((prev) => {
-                const existingIndex = prev.findIndex((a) => a.id === incomingAlert.id);
-                if (existingIndex >= 0) {
-                  const updated = [...prev];
-                  updated[existingIndex] = incomingAlert;
-                  return updated;
-                }
-                return [incomingAlert, ...prev.slice(0, 49)];
-              });
-              // Silent table state update - No spammy toast popup
+              if (incomingAlert.severity === 'CRITICAL') {
+                pushToast('Critical Alarm', `🚨 ${incomingAlert.pole_id}: ${incomingAlert.message}`, 'danger', incomingAlert.pole_id);
+              }
             } else if (message.type === 'ALERT_CLEARED') {
               const clearedAlert = message.data || {};
               const poleId = clearedAlert.pole_id || message.pole_id;
@@ -258,10 +599,19 @@ export default function App() {
                     : a
                 )
               );
-              showToast('Incident Resolved', `Alarm cleared for ${poleId || 'pole'}`, 'success');
+            } else if (message.type === 'POLE_POSITION_UPDATED') {
+              setPoles((prev) =>
+                prev.map((p) =>
+                  p.pole_id === message.pole_id
+                    ? { ...p, latitude: message.latitude, longitude: message.longitude }
+                    : p
+                )
+              );
+            } else if (message.type === 'POLES_UPDATE' && message.data) {
+              setPoles(message.data);
             }
           } catch (err) {
-            console.error('[WS] Parse error:', err);
+            console.error('[WS Parse Error]:', err.message);
           }
         };
 
@@ -272,1503 +622,1862 @@ export default function App() {
         };
 
         ws.onerror = () => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.close();
-          }
+          ws.close();
         };
-      } catch {
-        if (isMounted) {
-          reconnectTimeout = setTimeout(connectWs, 3000);
-        }
+      } catch (err) {
+        console.warn('[WS Connection Error]:', err.message);
       }
     }
 
     connectWs();
 
-    pollingInterval = setInterval(() => {
-      if (isMounted) fetchData();
-    }, 15000);
-
     return () => {
       isMounted = false;
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (pollingInterval) clearInterval(pollingInterval);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.onerror = null;
-        wsRef.current.close();
-      }
+      if (wsRef.current) wsRef.current.close();
     };
-  }, []);
+  }, [pushToast]);
 
-  // 4. Global Keyboard Shortcuts: [T] for Tamper, [C] for Clear, [1]/[2] for Pole Select
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
-        return;
-      }
-
-      if (e.key === 't' || e.key === 'T') {
-        e.preventDefault();
-        triggerTamperAlert(selectedPoleRef.current);
-      } else if (e.key === 'c' || e.key === 'C') {
-        e.preventDefault();
-        resolvePoleAlerts(selectedPoleRef.current);
-      } else if (e.key === '1') {
-        setSelectedPole('POLE-001');
-      } else if (e.key === '2') {
-        setSelectedPole('POLE-002');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Actuation: Toggle Single Pole Light (Instant 60 FPS Optimistic State)
-  const handleToggleLight = async (poleId, currentState, customBrightness = null) => {
-    const nextState = customBrightness !== null ? customBrightness > 0 : !currentState;
-    const brightness = customBrightness !== null ? customBrightness : (nextState ? 100 : 0);
-
-    // 1. Instant optimistic local UI update with zero delay and zero intermediate state
+  // 5. Downlink Actuation & Debounced Control
+  const dispatchControl = useCallback(async (poleId, nextState, brightness) => {
+    // Optimistic UI state update
     setPoles((prev) =>
-      prev.map((p) => (p.pole_id === poleId ? { ...p, latest_light_state: nextState } : p))
+      prev.map((p) =>
+        p.pole_id === poleId
+          ? { ...p, latest_light_state: nextState, is_on: nextState, brightness, latest_brightness: brightness }
+          : p
+      )
     );
     setDimmerValues((prev) => ({ ...prev, [poleId]: brightness }));
 
-    // 2. Dispatch network command in background
     try {
       await fetch(`/api/poles/${poleId}/control`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ light_state: nextState, brightness }),
+        body: JSON.stringify({ state: nextState, brightness }),
       });
     } catch (err) {
-      console.error('Failed to toggle light:', err);
+      console.error('[Control Dispatch Error]:', err.message);
     }
+  }, []);
+
+  const handleToggleLight = () => {
+    if (!selectedPole) return;
+    const currentState = selectedPole.latest_light_state || selectedPole.is_on;
+    const nextState = !currentState;
+    const brightness = nextState ? (dimmerValues[selectedPole.pole_id] || 100) : 0;
+    dispatchControl(selectedPole.pole_id, nextState, brightness);
   };
 
-  // Master Bulk Controls (Parallel 60 FPS Synchronous Grid Actuation)
-  const handleBulkControl = async (targetState, brightness = 100) => {
-    const targetBrightness = targetState ? brightness : 0;
+  const handleDimmerChange = (e) => {
+    if (!selectedPole) return;
+    const val = parseInt(e.target.value, 10);
+    const poleId = selectedPole.pole_id;
+    setDimmerValues((prev) => ({ ...prev, [poleId]: val }));
 
-    // 1. Instant synchronous UI update across all cards
-    setPoles((prev) => prev.map((p) => ({ ...p, latest_light_state: targetState })));
-    setDimmerValues((prev) => {
-      const updated = { ...prev };
-      poles.forEach((p) => {
-        updated[p.pole_id] = targetBrightness;
-      });
-      return updated;
-    });
-
-    // 2. Dispatch all requests in parallel
-    await Promise.all(
-      poles.map((pole) =>
-        fetch(`/api/poles/${pole.pole_id}/control`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ light_state: targetState, brightness: targetBrightness }),
-        }).catch((err) => console.error(`Bulk control failed for ${pole.pole_id}:`, err))
-      )
-    );
-  };
-
-  // Debounced Slider Handler for 60 FPS Fluid Dragging with zero stutter
-  const debounceTimerRef = useRef(null);
-  const handleSliderChange = (poleId, newBrightness) => {
-    // 1. Instant local optimistic update for UI glow and labels
-    setDimmerValues((prev) => ({ ...prev, [poleId]: newBrightness }));
-    setPoles((prev) =>
-      prev.map((p) => (p.pole_id === poleId ? { ...p, latest_light_state: newBrightness > 0 } : p))
-    );
-
-    // 2. Debounce MQTT dispatch (180ms) so rapid sliding doesn't flood backend
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    setIsDebouncingControl(true);
+
     debounceTimerRef.current = setTimeout(() => {
-      handleToggleLight(poleId, newBrightness > 0, newBrightness);
-    }, 180);
+      const nextState = val > 0;
+      dispatchControl(poleId, nextState, val);
+      setIsDebouncingControl(false);
+    }, 280);
   };
 
-  // Trigger Theft / Physical Tamper Alert
-  const triggerTamperAlert = async (poleId) => {
-    setTamperState((prev) => ({ ...prev, [poleId]: true }));
-    setTimeout(() => {
-      setTamperState((prev) => ({ ...prev, [poleId]: false }));
-    }, 1800);
-
-    // Optimistically drop voltage to 0V immediately
-    setPoles((prev) =>
-      prev.map((p) => (p.pole_id === poleId ? { ...p, latest_voltage: 0, latest_current: 0, latest_light_state: false } : p))
-    );
-    setDimmerValues((prev) => ({ ...prev, [poleId]: 0 }));
-
-    if (poleId === selectedPoleRef.current) {
-      setTelemetryHistory((prev) => [
-        ...prev,
-        {
-          time: formatLocalTime(Date.now()),
-          voltage: 0,
-          current: 0,
-          battery_soc: prev[prev.length - 1]?.battery_soc || 80,
-          light_state: false,
-        },
-      ].slice(-25));
-    }
-
+  // Tamper simulation
+  const handleTriggerTamper = async (poleId) => {
     try {
       await fetch(`/api/poles/${poleId}/tamper`, { method: 'POST' });
     } catch (err) {
-      console.error('Tamper trigger failed:', err);
+      console.error('Failed to trigger tamper:', err);
     }
   };
 
-  // Resolve Pole Active Alarms
-  const resolvePoleAlerts = async (poleId) => {
-    setClearState((prev) => ({ ...prev, [poleId]: true }));
-    setTimeout(() => {
-      setClearState((prev) => ({ ...prev, [poleId]: false }));
-    }, 1800);
-
-    // Optimistically mark all active alerts for this pole as CLEARED
-    setAlerts((prev) =>
-      prev.map((a) =>
-        a.pole_id === poleId && (a.status === 'ACTIVE' || !a.status)
-          ? { ...a, status: 'CLEARED', cleared_at: new Date().toISOString() }
-          : a
-      )
-    );
-
-    // Optimistically restore pole electrical metrics
-    setPoles((prev) =>
-      prev.map((p) =>
-        p.pole_id === poleId
-          ? { ...p, latest_voltage: 230, latest_current: p.latest_light_state ? 1.0 : 0.05 }
-          : p
-      )
-    );
-
-    // Optimistically push restored voltage point to active waveform chart
-    if (poleId === selectedPoleRef.current) {
-      setTelemetryHistory((prev) => [
-        ...prev,
-        {
-          pole_id: poleId,
-          voltage: 230,
-          current: 1.0,
-          battery_soc: 93,
-          light_state: true,
-          created_at: new Date().toISOString(),
-          time: formatLocalTime(Date.now()),
-        },
-      ].slice(-25));
-    }
-
+  // Restore hardware
+  const handleResolveAlerts = async (poleId) => {
     try {
       await fetch(`/api/poles/${poleId}/resolve-alerts`, { method: 'POST' });
+      pushToast('Hardware Restored', `✅ ${poleId} nominal 230V restored and alarms cleared`, 'success', poleId);
     } catch (err) {
-      console.error('Resolve alerts failed:', err);
+      console.error('Failed to resolve alerts:', err);
     }
   };
 
-  // Resolve a single alert from the Incident table
-  const resolveSingleAlert = async (alert) => {
-    if (!alert) return;
-    setAlerts((prev) =>
-      prev.map((a) =>
-        (alert.id && a.id === alert.id) || (!alert.id && a.pole_id === alert.pole_id && a.alert_type === alert.alert_type && a.status === 'ACTIVE')
-          ? { ...a, status: 'CLEARED', cleared_at: new Date().toISOString() }
-          : a
-      )
+  // Copy coordinates to clipboard
+  const handleCopyCoords = (lat, lng) => {
+    navigator.clipboard.writeText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    setCopiedCoords(true);
+    setTimeout(() => setCopiedCoords(false), 2000);
+  };
+
+  // Handle pole marker drag-end event on the map
+  const handleMarkerDragEnd = async (poleId, lngLat) => {
+    const lat = Number(lngLat.lat.toFixed(6));
+    const lng = Number(lngLat.lng.toFixed(6));
+
+    // Optimistic UI update
+    setPoles((prev) =>
+      prev.map((p) => (p.pole_id === poleId ? { ...p, latitude: lat, longitude: lng } : p))
     );
+    if (selectedPoleId === poleId) {
+      setCoordsInput({ lat: lat.toFixed(6), lng: lng.toFixed(6) });
+    }
 
     try {
-      if (alert.id) {
-        await fetch(`/api/alerts/${alert.id}/resolve`, { method: 'POST' });
+      const res = await fetch(`/api/poles/${poleId}/position`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: lat, longitude: lng }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        pushToast('Position Relocated', `📍 ${poleId} repositioned to (${lat}, ${lng})`, 'success', poleId);
       } else {
-        await fetch(`/api/poles/${alert.pole_id}/resolve-alerts`, { method: 'POST' });
+        pushToast('Position Error', data.error || 'Failed to update position', 'danger', poleId);
       }
     } catch (err) {
-      console.error('Resolve single alert failed:', err);
+      console.error('Failed to update position:', err);
+      pushToast('Position Error', 'Network error updating pole position', 'danger', poleId);
     }
   };
 
-  // Resolve All System Alarms
-  const handleResolveAllAlarms = async () => {
-    setAlerts((prev) =>
-      prev.map((a) =>
-        a.status === 'ACTIVE' || !a.status
-          ? { ...a, status: 'CLEARED', cleared_at: new Date().toISOString() }
-          : a
-      )
-    );
+  // Handle saving manual coordinate inputs
+  const handleSaveManualCoords = async () => {
+    const lat = parseFloat(coordsInput.lat);
+    const lng = parseFloat(coordsInput.lng);
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      pushToast('Invalid Coordinates', 'Please enter valid numbers for latitude (-90..90) and longitude (-180..180)', 'danger');
+      return;
+    }
+
     setPoles((prev) =>
-      prev.map((p) => ({ ...p, latest_voltage: 230, latest_current: p.latest_light_state ? 1.0 : 0.05 }))
+      prev.map((p) => (p.pole_id === selectedPoleId ? { ...p, latitude: lat, longitude: lng } : p))
     );
+    setIsEditingCoords(false);
+    setIsPickingCoordsOnMap(false);
+
     try {
-      await fetch('/api/alerts/resolve-all', { method: 'POST' });
+      const res = await fetch(`/api/poles/${selectedPoleId}/position`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: lat, longitude: lng }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        pushToast('Coordinates Saved', `📍 ${selectedPoleId} coordinates saved to database`, 'success', selectedPoleId);
+        if (mapRef.current) {
+          mapRef.current.flyTo({ center: [lng, lat], zoom: 16.5, duration: 800 });
+        }
+      }
     } catch (err) {
-      console.error('Resolve all alerts failed:', err);
+      console.error('Failed to update coordinates:', err);
     }
-    showToast('System Cleared', 'All active alarms across all zones resolved', 'success');
   };
 
-  // Diagnostics Ping
-  const triggerTestAlert = async (poleId) => {
+  // Handle clicking on map when in coordinate pick / placement mode
+  const handleMapClick = (e) => {
+    const lat = Number(e.lngLat.lat.toFixed(6));
+    const lng = Number(e.lngLat.lng.toFixed(6));
+
+    if (isPickingCoordsOnMap && selectedPoleId) {
+      setCoordsInput({ lat: lat.toFixed(6), lng: lng.toFixed(6) });
+      setPoles((prev) =>
+        prev.map((p) => (p.pole_id === selectedPoleId ? { ...p, latitude: lat, longitude: lng } : p))
+      );
+      pushToast('Location Picked', `📍 Selected (${lat}, ${lng}). Click "Save Coordinates" to apply.`, 'info');
+      setIsPickingCoordsOnMap(false);
+    } else if (isAddingPole) {
+      setNewPoleForm((prev) => ({ ...prev, latitude: lat, longitude: lng }));
+      pushToast('Pin Placed', `📍 Coordinates captured: (${lat}, ${lng})`, 'info');
+    }
+  };
+
+  // Handle creating a new pole
+  const handleCreateNewPole = async (e) => {
+    e?.preventDefault();
+    if (!newPoleForm.pole_id) {
+      pushToast('Validation Error', 'Pole ID is required (e.g. POLE-016)', 'danger');
+      return;
+    }
     try {
-      await fetch('/api/alerts', {
+      const res = await fetch('/api/poles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pole_id: poleId,
-          severity: 'WARNING',
-          message: `Manual diagnostics ping triggered on ${poleId}`,
-          alert_type: 'MANUAL_TEST',
-        }),
+        body: JSON.stringify(newPoleForm),
       });
-      showToast('Diagnostic Ping', `Signal verified for ${poleId}`, 'info');
+      const data = await res.json();
+      if (data.success) {
+        setIsAddingPole(false);
+        fetchData();
+        setSelectedPoleId(newPoleForm.pole_id);
+        pushToast('Pole Added', `✅ Pole ${newPoleForm.pole_id} successfully deployed to map`, 'success', newPoleForm.pole_id);
+        if (mapRef.current) {
+          mapRef.current.flyTo({ center: [newPoleForm.longitude, newPoleForm.latitude], zoom: 16.5, duration: 900 });
+        }
+      } else {
+        pushToast('Creation Failed', data.error || 'Could not create pole', 'danger');
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Error creating pole:', err);
     }
   };
 
-  // Computed KPI Metrics
+  // Handle deleting a pole
+  const handleDeletePole = async (poleId) => {
+    if (!window.confirm(`Are you sure you want to remove pole ${poleId} from the GIS map and database?`)) return;
+    try {
+      const res = await fetch(`/api/poles/${poleId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setPoles((prev) => prev.filter((p) => p.pole_id !== poleId));
+        if (selectedPoleId === poleId) {
+          const remaining = poles.filter((p) => p.pole_id !== poleId);
+          if (remaining.length > 0) setSelectedPoleId(remaining[0].pole_id);
+        }
+        pushToast('Pole Removed', `🗑️ ${poleId} deleted`, 'info');
+      }
+    } catch (err) {
+      console.error('Error deleting pole:', err);
+    }
+  };
+
+  // Handle cluster selection from left sidebar (pans map to cluster while keeping all clusters visible)
+  const handleSelectCluster = (clusterId) => {
+    setClusterFilter(clusterId);
+    if (navTab !== 'MAP') setNavTab('MAP');
+
+    if (mapRef.current) {
+      if (clusterId === 'CLUSTER-A') {
+        mapRef.current.flyTo({ center: [90.3800, 23.8736], zoom: 16.4, pitch: 60, bearing: -15, duration: 1000 });
+      } else if (clusterId === 'CLUSTER-B') {
+        mapRef.current.flyTo({ center: [90.3850, 23.8720], zoom: 16.4, pitch: 60, bearing: -15, duration: 1000 });
+      } else if (clusterId === 'CLUSTER-C') {
+        mapRef.current.flyTo({ center: [90.3776, 23.8772], zoom: 16.4, pitch: 60, bearing: -15, duration: 1000 });
+      } else {
+        mapRef.current.flyTo({ center: [90.3820, 23.8745], zoom: 15.2, pitch: 60, bearing: -15, duration: 1000 });
+      }
+    }
+  };
+
+  // All poles visible on the map, sorted by latitude descending (North to South) so foreground pins naturally render in front of background pins
+  const mapPoles = useMemo(() => {
+    let filtered = poles;
+    if (searchQuery) {
+      filtered = poles.filter((p) =>
+        p.pole_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.zone?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    // Sort descending by latitude: North (background) renders first, South (foreground) renders in front
+    return [...filtered].sort((a, b) => Number(b.latitude) - Number(a.latitude));
+  }, [poles, searchQuery]);
+
+  // Dynamic Mesh Lines connecting each Street Lamp Pole to its Cluster Master Pole
+  const meshLinesGeoJson = useMemo(() => {
+    const features = [];
+    GATEWAYS.forEach((gw) => {
+      const clusterColor = CLUSTER_META[gw.cluster_id]?.color || '#f59e0b';
+      const clusterPoles = poles.filter((p) => p.cluster_id === gw.cluster_id);
+
+      clusterPoles.forEach((pole) => {
+        features.push({
+          type: 'Feature',
+          properties: {
+            cluster_id: gw.cluster_id,
+            color: clusterColor,
+            pole_id: pole.pole_id,
+            gw_id: gw.id,
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [Number(gw.lng), Number(gw.lat)],
+              [Number(pole.longitude), Number(pole.latitude)],
+            ],
+          },
+        });
+      });
+    });
+
+    return {
+      type: 'FeatureCollection',
+      features,
+    };
+  }, [poles]);
+
+  // Filtered poles list (used for table view)
+  const filteredPoles = useMemo(() => {
+    return poles.filter((p) => {
+      const matchSearch =
+        searchQuery === '' ||
+        p.pole_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.zone?.toLowerCase().includes(searchQuery.toLowerCase());
+
+      if (!matchSearch) return false;
+
+      if (clusterFilter === 'ALL') return true;
+      if (clusterFilter === 'TAMPER') return p.status === 'TAMPER/CRITICAL' || p.latest_tamper_status;
+      return p.cluster_id === clusterFilter;
+    });
+  }, [poles, searchQuery, clusterFilter]);
+
+  // Aggregate Metrics
   const totalPoles = poles.length;
   const activeLights = poles.filter((p) => p.latest_light_state).length;
-  const activePercent = totalPoles ? Math.round((activeLights / totalPoles) * 100) : 0;
-  
-  const totalPowerWatts = poles
-    .reduce((sum, p) => sum + (Number(p.latest_voltage || 230) * Number(p.latest_current || 0.05)), 0)
-    .toFixed(0);
-
-  const avgBattery = totalPoles
-    ? Math.round(poles.reduce((sum, p) => sum + Number(p.latest_battery_soc || 0), 0) / totalPoles)
+  const tamperedCount = poles.filter((p) => p.status === 'TAMPER/CRITICAL' || p.latest_tamper_status).length;
+  const avgBatterySoc = totalPoles > 0
+    ? Math.round(poles.reduce((sum, p) => sum + Number(p.latest_battery_soc || 90), 0) / totalPoles)
     : 0;
-
-  const avgVoltage = totalPoles
-    ? (poles.reduce((sum, p) => sum + Number(p.latest_voltage || 230), 0) / totalPoles).toFixed(1)
-    : '230.0';
-
-  const activeAlertsList = alerts.filter((a) => a.status === 'ACTIVE' || (!a.status && a.severity === 'CRITICAL'));
-  const activeAlertsCount = activeAlertsList.length;
-  const resolvedAlertsCount = alerts.filter((a) => a.status === 'CLEARED').length;
-
-  // Filtered Alert Queue
-  const filteredAlerts = useMemo(() => {
-    return alerts.filter((a) => {
-      const matchesSearch =
-        !searchQuery ||
-        a.pole_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.message?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.alert_type?.toLowerCase().includes(searchQuery.toLowerCase());
-
-      if (!matchesSearch) return false;
-
-      if (alertFilter === 'ACTIVE') return a.status === 'ACTIVE' || (!a.status && a.severity === 'CRITICAL');
-      if (alertFilter === 'CLEARED') return a.status === 'CLEARED';
-      if (alertFilter === 'CRITICAL') return a.severity === 'CRITICAL';
-      return true;
-    });
-  }, [alerts, alertFilter, searchQuery]);
-
-  // Currently Selected Pole Details
-  const activePoleObj = poles.find((p) => p.pole_id === selectedPole) || poles[0] || {};
-  const activePoleLit = Boolean(activePoleObj.latest_light_state);
-  const activePoleBrightness = dimmerValues[activePoleObj.pole_id] ?? (activePoleLit ? 100 : 0);
+  const totalPowerKW = totalPoles > 0
+    ? (poles.reduce((sum, p) => sum + Number(p.latest_power_watts || 190), 0) / 1000).toFixed(2)
+    : '0.00';
 
   return (
-    <div style={{ minHeight: '100vh', padding: '1.25rem 2rem 3rem', maxWidth: '1600px', margin: '0 auto' }}>
-      
-      {/* ================= FLOATING STACKED PERSISTENT TOAST NOTIFICATIONS ================= */}
-      {toastStack.length > 0 && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '1.5rem',
-            right: '1.5rem',
-            zIndex: 99999,
-            display: 'flex',
-            flexDirection: 'column-reverse',
-            gap: '0.65rem',
-            maxWidth: '430px',
-            width: 'calc(100vw - 3rem)',
-            pointerEvents: 'none',
-          }}
-        >
-          {toastStack.map((toast) => (
-            <div
-              key={toast.id}
-              style={{
-                pointerEvents: 'auto',
-                background:
-                  toast.type === 'danger'
-                    ? 'linear-gradient(135deg, #2d101c 0%, #1f0b14 100%)'
-                    : toast.type === 'success'
-                    ? 'linear-gradient(135deg, #0d281e 0%, #081a13 100%)'
-                    : 'linear-gradient(135deg, #1c1533 0%, #120e24 100%)',
-                border: `1px solid ${
-                  toast.type === 'danger'
-                    ? 'rgba(244, 63, 94, 0.7)'
-                    : toast.type === 'success'
-                    ? 'rgba(16, 185, 129, 0.7)'
-                    : 'rgba(168, 85, 247, 0.7)'
-                }`,
-                boxShadow: '0 18px 45px rgba(0, 0, 0, 0.95), 0 0 20px rgba(0, 0, 0, 0.6)',
-                padding: '0.85rem 1.1rem',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                gap: '0.75rem',
-                backdropFilter: 'blur(16px)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', flex: 1 }}>
-                <div style={{ marginTop: '2px', flexShrink: 0 }}>
-                  {toast.type === 'danger' ? (
-                    <ShieldAlert size={20} color="var(--neon-rose)" />
-                  ) : toast.type === 'success' ? (
-                    <CheckCircle2 size={20} color="var(--neon-emerald)" />
-                  ) : (
-                    <Sparkles size={20} color="var(--neon-cyan)" />
-                  )}
-                </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.15rem' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff' }}>
-                      {toast.title}
-                    </span>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                      {toast.time}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '0.775rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
-                    {toast.msg}
-                  </div>
-                </div>
-              </div>
-
-              {/* Close Button [X] */}
-              <button
-                onClick={() => dismissToast(toast.id)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '24px',
-                  height: '24px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(244, 63, 94, 0.4)';
-                  e.currentTarget.style.color = '#fff';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                }}
-                title="Close notification"
-              >
-                <X size={14} />
-              </button>
+    <div className="flex h-screen w-screen bg-[#f8fafc] text-gray-900 font-sans overflow-hidden select-none">
+      {/* 1. LEFT EXPANDED NAVIGATION BAR (Clean Light Theme) */}
+      <aside className="w-56 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col justify-between py-4 px-3 z-40 shadow-xs">
+        <div className="flex flex-col gap-5">
+          {/* Brand Header */}
+          <div className="flex items-center gap-3 px-2 py-1">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-md shadow-amber-500/20">
+              <Zap className="w-5 h-5 text-white fill-white/20" />
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* ================= ELECTRA TOP HEADER BAR ================= */}
-      <header
-        className="electra-card"
-        style={{
-          padding: '0.85rem 1.5rem',
-          marginBottom: '1.5rem',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          borderRadius: 'var(--radius-xl)',
-        }}
-      >
-        {/* Brand Logo & Tag */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          <div
-            style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: 'var(--radius-md)',
-              background: 'linear-gradient(135deg, #a855f7 0%, #ec4899 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 0 20px var(--neon-purple-glow)',
-            }}
-          >
-            <Zap size={22} color="#ffffff" strokeWidth={2.5} />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '1.25rem', fontWeight: 900, letterSpacing: '0.05em', color: '#fff' }}>
-                ELECTRA
-              </span>
-              <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--neon-cyan)', background: 'rgba(6, 182, 212, 0.15)', padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-                GRID OS
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Center Nav Pills (Quick Jump Action Buttons - Non-Persistent Active State) */}
-        <div style={{ display: 'flex', gap: '0.4rem', background: '#0e0b1a', padding: '0.3rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-subtle)' }}>
-          {[
-            { id: 'DASHBOARD', targetId: 'section-overview', label: 'Overview', icon: <Layers size={14} /> },
-            { id: 'STATION', targetId: 'section-nodes', label: 'Nodes & Zones', icon: <Radio size={14} /> },
-            { id: 'ANALYTICS', targetId: 'section-telemetry', label: 'Energy Telemetry', icon: <Activity size={14} /> },
-            { id: 'ALARMS', targetId: 'alarm-section', label: `Incidents (${activeAlertsCount})`, icon: <AlertTriangle size={14} /> },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setHighlightedSection(tab.targetId);
-                if (tab.id === 'DASHBOARD') {
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                } else {
-                  const el = document.getElementById(tab.targetId);
-                  if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                  }
-                }
-                // Automatically clear focus glow after 1.5s
-                setTimeout(() => setHighlightedSection(null), 1500);
-              }}
-              className="btn-electra-pill"
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Right Actions & User Profile */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          
-          {/* Live Stream Pill */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              background: wsConnected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(244, 63, 94, 0.12)',
-              padding: '0.35rem 0.75rem',
-              borderRadius: 'var(--radius-full)',
-              border: `1px solid ${wsConnected ? 'rgba(16, 185, 129, 0.35)' : 'rgba(244, 63, 94, 0.35)'}`,
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              color: wsConnected ? 'var(--neon-emerald)' : 'var(--neon-rose)',
-            }}
-          >
-            <span className={`pulse-dot ${wsConnected ? 'online' : 'danger'}`} />
-            {wsConnected ? 'MQTT Live' : 'Offline'}
-          </div>
-
-          {/* Master Bulk Control Buttons */}
-          <button
-            onClick={() => handleBulkControl(true, 100)}
-            className="btn-electra-gold"
-            style={{ padding: '0.45rem 0.85rem', fontSize: '0.75rem' }}
-            title="Turn ON all smart street lights at 100% brightness"
-          >
-            <Sun size={13} /> Master 100%
-          </button>
-
-          <button
-            onClick={() => handleBulkControl(true, 50)}
-            className="btn-electra-pill"
-            style={{ padding: '0.45rem 0.85rem', fontSize: '0.75rem', color: 'var(--neon-gold)' }}
-            title="Set all smart street lights to Eco 50% brightness"
-          >
-            <Sparkles size={13} /> Eco 50%
-          </button>
-
-          <button
-            onClick={() => handleBulkControl(false, 0)}
-            className="btn-electra-pill"
-            style={{ padding: '0.45rem 0.85rem', fontSize: '0.75rem' }}
-            title="Turn OFF all smart street lights"
-          >
-            <Moon size={13} /> Master OFF
-          </button>
-
-          {/* Quick Refresh */}
-          <button
-            onClick={() => {
-              fetchData();
-              fetchTelemetryHistory(selectedPole);
-              showToast('Syncing Grid', 'Telemetry and alarm queue refreshed', 'info');
-            }}
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              background: 'var(--bg-pill)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-            }}
-            title="Refresh"
-          >
-            <RefreshCw size={15} />
-          </button>
-
-          {/* Profile Avatar */}
-          <div
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #a855f7, #ec4899)',
-              padding: '2px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                height: '100%',
-                borderRadius: '50%',
-                background: '#161228',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 800,
-                fontSize: '0.75rem',
-                color: '#fff',
-              }}
-            >
-              SC
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* ================= TOP GRID: 3 HERO REFERENCE CARDS ================= */}
-      <section
-        id="section-overview"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(280px, 1fr) minmax(280px, 1fr)',
-          gap: '1.25rem',
-          marginBottom: '1.5rem',
-        }}
-      >
-        {/* HERO CARD 1: ACTIVE POLE HARDWARE NODE (ELECTRA CAR / WIREFRAME STYLE) */}
-        <div className={`electra-card ${highlightedSection === 'section-overview' ? 'section-focused' : ''}`} style={{ padding: '1.4rem' }}>
-          
-          {/* Card Header with Dropdown Switcher */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(168, 85, 247, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Lightbulb size={16} color="var(--neon-purple)" />
-              </div>
-              <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>
-                Smart Street Pole
-              </span>
-            </div>
-
-            {/* Target Pole Switcher Dropdown */}
-            <div style={{ display: 'flex', gap: '0.35rem', background: '#0e0b1a', padding: '0.2rem 0.5rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-subtle)' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--neon-purple)' }}>
-                {selectedPole}
-              </span>
-              <select
-                value={selectedPole}
-                onChange={(e) => setSelectedPole(e.target.value)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.75rem',
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                {poles.map((p) => (
-                  <option key={p.pole_id} value={p.pole_id} style={{ background: '#161228', color: '#fff' }}>
-                    {p.pole_id} ({p.zone.split(' - ')[0]})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Futuristic Visualizer Banner (Electra Neon Shield Style) */}
-          <div
-            style={{
-              height: '150px',
-              borderRadius: 'var(--radius-md)',
-              background: 'linear-gradient(135deg, #0e0b1a 0%, #1a1435 100%)',
-              border: '1px solid rgba(168, 85, 247, 0.25)',
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              alignItems: 'center',
-              justifyItems: 'center',
-              padding: '0.75rem 1rem',
-              position: 'relative',
-              boxShadow: 'inset 0 0 30px rgba(0, 0, 0, 0.7)',
-            }}
-          >
-            {/* Left Column: Glowing Street Light Graphic */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                position: 'relative',
-                width: '100%',
-                zIndex: 1,
-              }}
-            >
-              {/* Dynamic Halo Glow - Symmetrical optical dispersion */}
-              <div
-                style={{
-                  position: 'absolute',
-                  width: `${Math.max(40, 48 + (activePoleBrightness / 100) * 52)}px`,
-                  height: `${Math.max(40, 48 + (activePoleBrightness / 100) * 52)}px`,
-                  borderRadius: '50%',
-                  background: activePoleBrightness > 0
-                    ? `radial-gradient(circle, rgba(251, 191, 36, ${(activePoleBrightness / 100) * 0.65}) 0%, rgba(245, 158, 11, ${(activePoleBrightness / 100) * 0.3}) 45%, transparent 70%)`
-                    : 'none',
-                  top: '26px',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  pointerEvents: 'none',
-                  zIndex: 0,
-                  transition: 'all 0.12s ease-out',
-                }}
-              />
-
-              {/* Luminaire Core Housing */}
-              <div
-                style={{
-                  width: '52px',
-                  height: '52px',
-                  borderRadius: '50%',
-                  background: activePoleBrightness === 0
-                    ? '#18132c'
-                    : activePoleBrightness >= 80
-                    ? 'radial-gradient(circle, #fffbeb 0%, #fde047 35%, #f59e0b 80%, #d97706 100%)'
-                    : `radial-gradient(circle, rgba(254, 240, 138, ${0.3 + (activePoleBrightness / 100) * 0.7}) 0%, rgba(251, 191, 36, ${0.25 + (activePoleBrightness / 100) * 0.6}) 50%, rgba(26, 20, 50, 0.9) 100%)`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: activePoleBrightness > 0
-                    ? `2px solid rgba(251, 191, 36, ${0.4 + (activePoleBrightness / 100) * 0.6})`
-                    : '1px solid rgba(255, 255, 255, 0.08)',
-                  boxShadow: activePoleBrightness > 0
-                    ? `0 0 ${(activePoleBrightness / 100) * 20}px rgba(251, 191, 36, ${0.4 + (activePoleBrightness / 100) * 0.5}), inset 0 0 10px rgba(254, 240, 138, ${activePoleBrightness / 100})`
-                    : 'none',
-                  zIndex: 1,
-                  transition: 'all 0.12s ease-out',
-                }}
-              >
-                <Lightbulb
-                  size={26}
-                  color={activePoleBrightness === 0 ? '#64748b' : '#ffffff'}
-                  strokeWidth={2.4}
-                  style={{
-                    filter: activePoleBrightness > 0
-                      ? `drop-shadow(0 0 ${(activePoleBrightness / 100) * 12}px rgba(251, 191, 36, 0.9))`
-                      : 'none',
-                    transition: 'all 0.12s ease-out',
-                  }}
-                />
-              </div>
-
-              <span
-                style={{
-                  fontSize: '0.725rem',
-                  fontWeight: 800,
-                  color: activePoleBrightness > 0 ? 'var(--neon-gold)' : 'var(--text-muted)',
-                  textAlign: 'center',
-                  whiteSpace: 'nowrap',
-                  marginTop: '0.45rem',
-                  zIndex: 1,
-                  transition: 'color 0.15s ease',
-                }}
-              >
-                {activePoleBrightness > 0 ? `LUMEN OUTPUT: ${activePoleBrightness}%` : 'STANDBY (0%)'}
-              </span>
-            </div>
-
-            {/* Right Column: Battery Capsule Box (Rock Solid & Stationary) */}
-            <div
-              style={{
-                width: '135px',
-                background: 'rgba(6, 182, 212, 0.15)',
-                border: '1px solid rgba(6, 182, 212, 0.4)',
-                borderRadius: 'var(--radius-lg)',
-                padding: '0.75rem 1rem',
-                textAlign: 'center',
-                boxShadow: '0 0 20px rgba(6, 182, 212, 0.2)',
-                zIndex: 1,
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
-                {activePoleObj.latest_battery_soc || 88}%
-              </div>
-              <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Battery SoC
-              </div>
-            </div>
-          </div>
-
-          {/* Dedicated Dimmer Slider directly for Selected Pole in Card 1 */}
-          <div
-            className="electra-slider-box"
-            style={{
-              marginTop: '0.85rem',
-              background: '#0a0814',
-              padding: '0.65rem 0.85rem',
-              borderRadius: 'var(--radius-sm)',
-              userSelect: 'none',
-              WebkitUserSelect: 'none',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '0.35rem', userSelect: 'none' }}>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', userSelect: 'none' }}>
-                <Sliders size={12} color="var(--neon-gold)" /> {selectedPole} Luminaire Dimmer
-              </span>
-              <span style={{ color: 'var(--neon-gold)', fontWeight: 800, fontFamily: 'var(--font-mono)', userSelect: 'none' }}>
-                {activePoleBrightness}%
-              </span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={activePoleBrightness}
-              onChange={(e) => handleSliderChange(selectedPole, Number(e.target.value))}
-              className="electra-slider"
-            />
-          </div>
-
-          {/* 2 Metric Summary Strip (Grid Voltage & Load Current) */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              textAlign: 'center',
-              marginTop: '1rem',
-              paddingTop: '0.85rem',
-              borderTop: '1px solid var(--border-subtle)',
-              userSelect: 'none',
-              WebkitUserSelect: 'none',
-            }}
-          >
-            <div style={{ userSelect: 'none' }}>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: activePoleObj.latest_voltage === 0 ? 'var(--neon-rose)' : '#fff', fontFamily: 'var(--font-mono)', userSelect: 'none' }}>
-                {activePoleObj.latest_voltage !== undefined && activePoleObj.latest_voltage !== null ? `${activePoleObj.latest_voltage}V` : '230.1V'}
-              </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem', userSelect: 'none' }}>
-                Grid Voltage
-              </div>
-            </div>
-            <div style={{ userSelect: 'none' }}>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: activePoleObj.latest_current === 0 ? 'var(--text-muted)' : 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', userSelect: 'none' }}>
-                {activePoleObj.latest_current !== undefined && activePoleObj.latest_current !== null ? `${activePoleObj.latest_current}A` : '0.85A'}
-              </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem', userSelect: 'none' }}>
-                Load Current
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* HERO CARD 2: CHARGE & STORAGE GOALS (ELECTRA ARC GAUGE STYLE) */}
-        <div className={`electra-card ${highlightedSection === 'section-overview' ? 'section-focused' : ''}`} style={{ padding: '1.4rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <BatteryCharging size={16} color="var(--neon-magenta)" />
-              </div>
-              <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>
-                Storage & Solar Goals
-              </span>
-            </div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: '#0e0b1a', padding: '0.2rem 0.6rem', borderRadius: 'var(--radius-full)' }}>
-              Today
-            </span>
-          </div>
-
-          {/* Semi-Circular Radial SVG Arc Gauge (Faithful to Electra Arc) */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', margin: '0.5rem 0' }}>
-            <svg width="240" height="120" viewBox="0 0 240 120">
-              <defs>
-                <linearGradient id="electraArcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#a855f7" />
-                  <stop offset="50%" stopColor="#ec4899" />
-                  <stop offset="100%" stopColor="#38bdf8" />
-                </linearGradient>
-              </defs>
-              {/* Dotted Guide Scale Line */}
-              <path
-                d="M 25 110 A 95 95 0 0 1 215 110"
-                fill="none"
-                stroke="#251f44"
-                strokeWidth="12"
-                strokeLinecap="round"
-                strokeDasharray="2 6"
-              />
-              {/* Active Progress Arc */}
-              <path
-                d="M 25 110 A 95 95 0 0 1 215 110"
-                fill="none"
-                stroke="url(#electraArcGrad)"
-                strokeWidth="12"
-                strokeLinecap="round"
-                strokeDasharray="298"
-                strokeDashoffset={298 - (298 * Math.min(100, Math.max(0, avgBattery))) / 100}
-                style={{
-                  filter: 'drop-shadow(0 0 12px rgba(236, 72, 153, 0.7))',
-                  transition: 'stroke-dashoffset 0.8s ease',
-                }}
-              />
-            </svg>
-
-            {/* Arc Center Metrics - Positioned at top 60% per user design */}
-            <div
-              style={{
-                position: 'absolute',
-                top: '60%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                textAlign: 'center',
-                width: '100%',
-                pointerEvents: 'none',
-              }}
-            >
-              <div style={{ fontSize: '2rem', fontWeight: 900, color: '#ffffff', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
-                {avgBattery}%
-              </div>
-              <div style={{ fontSize: '0.675rem', fontWeight: 800, color: 'var(--neon-magenta)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '0.25rem' }}>
-                System SoC Reserve
-              </div>
-            </div>
-
-            {/* Arc Dotted Tick Labels - Positioned cleanly below the arc baseline */}
-            <div style={{ width: '225px', display: 'flex', justifyContent: 'space-between', marginTop: '0.65rem', padding: '0 0.1rem', fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-              <span>0</span>
-              <span>25</span>
-              <span>50</span>
-              <span>75</span>
-              <span>100</span>
-            </div>
-          </div>
-
-          {/* Dual Goal Metrics Bottom Strip */}
-          <div style={{ display: 'flex', justifyContent: 'space-around', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--neon-purple)' }} />
-              <div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>78%</div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Daily Solar Goal</div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--neon-magenta)' }} />
-              <div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>94%</div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Storage Health</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* HERO CARD 3: SMART CITY TOPOLOGY & ZONE DISPATCH (ELECTRA MAP STYLE) */}
-        <div className={`electra-card ${highlightedSection === 'section-overview' ? 'section-focused' : ''}`} style={{ padding: '1.4rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(6, 182, 212, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Navigation size={16} color="var(--neon-cyan)" />
-              </div>
-              <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>
-                Urban Grid Topology
-              </span>
-            </div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--neon-emerald)', fontWeight: 700 }}>
-              2 Active Zones
-            </span>
-          </div>
-
-          {/* Stylized Dark Grid Map with Neon Route Path (Electra Reference Map) */}
-          <div
-            style={{
-              height: '115px',
-              borderRadius: 'var(--radius-md)',
-              background: '#0a0814',
-              border: '1px solid rgba(168, 85, 247, 0.2)',
-              position: 'relative',
-              overflow: 'hidden',
-              margin: '0.65rem 0',
-            }}
-          >
-            {/* Grid Pattern Lines */}
-            <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0, opacity: 0.25 }}>
-              <pattern id="cityGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#6366f1" strokeWidth="0.5" />
-              </pattern>
-              <rect width="100%" height="100%" fill="url(#cityGrid)" />
-            </svg>
-
-            {/* Neon Connection Path */}
-            <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0 }}>
-              <path
-                d="M 30 75 L 100 35 L 170 85 L 240 45"
-                fill="none"
-                stroke="#ec4899"
-                strokeWidth="3"
-                strokeDasharray="4 4"
-              />
-              <circle cx="30" cy="75" r="5" fill="#a855f7" />
-              <circle cx="100" cy="35" r="5" fill="#38bdf8" />
-              <circle cx="170" cy="85" r="5" fill="#fbbf24" />
-              <circle cx="240" cy="45" r="6" fill="#10b981" />
-            </svg>
-
-            {/* Floating Location Pills */}
-            <div style={{ position: 'absolute', top: '10px', left: '15px', background: 'rgba(22, 18, 40, 0.85)', padding: '0.2rem 0.5rem', borderRadius: 'var(--radius-xs)', fontSize: '0.65rem', color: '#fff', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
-              📍 Zone North (POLE-001)
-            </div>
-            <div style={{ position: 'absolute', bottom: '10px', right: '15px', background: 'rgba(22, 18, 40, 0.85)', padding: '0.2rem 0.5rem', borderRadius: 'var(--radius-xs)', fontSize: '0.65rem', color: '#fff', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-              📍 Zone South (POLE-002)
-            </div>
-          </div>
-
-          {/* Bottom Grid Telemetry Stats */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)', fontSize: '0.75rem' }}>
-            <div style={{ color: 'var(--text-secondary)' }}>
-              ⚡ Total Load: <span style={{ color: '#fff', fontWeight: 800 }}>{totalPowerWatts} W</span>
-            </div>
-            <div style={{ color: 'var(--text-secondary)' }}>
-              ⏱️ Latency: <span style={{ color: 'var(--neon-emerald)', fontWeight: 800 }}>&lt;15 ms</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ================= MIDDLE SECTION: 2 PRIMARY WORKSPACES ================= */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(400px, 1.4fr) minmax(360px, 1fr)', gap: '1.25rem', marginBottom: '1.5rem' }}>
-        
-        {/* WORKSPACE LEFT: REAL-TIME TELEMETRY DYNAMICS (NEON SPLINE WAVES) */}
-        <div id="section-telemetry" className={`electra-card ${highlightedSection === 'section-telemetry' ? 'section-focused' : ''}`} style={{ padding: '1.4rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          
-          {/* Header with Switcher Pills */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Activity size={18} color="var(--neon-cyan)" />
-                <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>
-                  Live Telemetry Waveforms
-                </h2>
-                <span style={{ fontSize: '0.7rem', color: 'var(--neon-cyan)', background: 'rgba(6, 182, 212, 0.15)', padding: '0.15rem 0.5rem', borderRadius: 'var(--radius-xs)', fontWeight: 700 }}>
-                  {selectedPole}
+              <div className="flex items-center gap-1.5">
+                <span className="font-extrabold text-sm tracking-tight text-gray-900">ELECTRA</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                  GIS
                 </span>
               </div>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-                Real-time AC Grid Voltage (V) & Actuator Current Draw (A)
-              </p>
-            </div>
-
-            {/* Target Pole Switcher Pills */}
-            <div style={{ display: 'flex', gap: '0.35rem', background: '#0e0b1a', padding: '0.25rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-subtle)' }}>
-              {poles.map((p) => (
-                <button
-                  key={p.pole_id}
-                  onClick={() => setSelectedPole(p.pole_id)}
-                  style={{
-                    padding: '0.3rem 0.75rem',
-                    fontSize: '0.725rem',
-                    fontWeight: 800,
-                    borderRadius: 'var(--radius-full)',
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: selectedPole === p.pole_id ? 'linear-gradient(135deg, #a855f7, #ec4899)' : 'transparent',
-                    color: selectedPole === p.pole_id ? '#fff' : 'var(--text-muted)',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  {p.pole_id}
-                </button>
-              ))}
+              <p className="text-[11px] text-gray-500 font-medium">Uttara Sector 18 Fleet</p>
             </div>
           </div>
 
-          {/* Chart 1: Glowing Spline Waves for Voltage & Current */}
-          <div style={{ height: '210px', width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={telemetryHistory} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.04)" />
-                <XAxis dataKey="time" stroke="#475569" fontSize={10} tickLine={false} />
-                <YAxis yAxisId="left" domain={[200, 260]} stroke="#06b6d4" fontSize={10} unit="V" tickLine={false} />
-                <YAxis yAxisId="right" orientation="right" domain={[0, 2.5]} stroke="#ec4899" fontSize={10} unit="A" tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#161228',
-                    borderColor: 'rgba(168, 85, 247, 0.3)',
-                    borderRadius: '12px',
-                    fontSize: '11px',
-                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.9)',
-                  }}
-                />
-                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }} />
-                <Line yAxisId="left" type="monotone" dataKey="voltage" name="Voltage (V)" stroke="#06b6d4" strokeWidth={2.5} dot={{ fill: '#06b6d4', r: 2 }} isAnimationActive={false} />
-                <Line yAxisId="right" type="monotone" dataKey="current" name="Current (A)" stroke="#ec4899" strokeWidth={2.5} dot={{ fill: '#ec4899', r: 2 }} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
+          {/* Primary Navigation */}
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 block mb-1.5">
+              Overview
+            </span>
+
+            <button
+              onClick={() => setNavTab('MAP')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                navTab === 'MAP'
+                  ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
+                  : 'text-gray-600 hover:bg-gray-100/80 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <MapPin className={`w-4 h-4 ${navTab === 'MAP' ? 'text-white' : 'text-gray-500'}`} />
+                <span>GIS Map View</span>
+              </div>
+              <span className={`min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center text-[10px] font-mono font-bold leading-none ${
+                navTab === 'MAP' ? 'bg-white/25 text-white' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {totalPoles}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setNavTab('POLES')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                navTab === 'POLES'
+                  ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
+                  : 'text-gray-600 hover:bg-gray-100/80 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <TableIcon className={`w-4 h-4 ${navTab === 'POLES' ? 'text-white' : 'text-gray-500'}`} />
+                <span>Poles Fleet</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setNavTab('ALERTS')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                navTab === 'ALERTS'
+                  ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
+                  : 'text-gray-600 hover:bg-gray-100/80 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Bell className={`w-4 h-4 ${navTab === 'ALERTS' ? 'text-white' : 'text-gray-500'}`} />
+                <span>Alerts & Theft</span>
+              </div>
+              {tamperedCount > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1.5 rounded-full flex items-center justify-center text-[10px] font-bold bg-rose-500 text-white leading-none shadow-xs">
+                  {tamperedCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setNavTab('ANALYTICS')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                navTab === 'ANALYTICS'
+                  ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
+                  : 'text-gray-600 hover:bg-gray-100/80 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Activity className={`w-4 h-4 ${navTab === 'ANALYTICS' ? 'text-white' : 'text-gray-500'}`} />
+                <span>Power Analytics</span>
+              </div>
+            </button>
           </div>
 
-          {/* Chart 2: Battery Storage Dynamics (Electra Area Wave) */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', fontSize: '0.75rem' }}>
-              <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>
-                Photovoltaic Storage Charge (%)
-              </span>
-              <span style={{ color: 'var(--neon-emerald)', fontWeight: 700 }}>
-                {activePoleObj.latest_battery_soc || 85}% Available
-              </span>
-            </div>
-            <div style={{ height: '140px', width: '100%' }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={telemetryHistory} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="electraAreaFlow" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#a855f7" stopOpacity={0.5} />
-                      <stop offset="95%" stopColor="#ec4899" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.04)" />
-                  <XAxis dataKey="time" stroke="#475569" fontSize={10} tickLine={false} />
-                  <YAxis domain={[0, 100]} stroke="#a855f7" fontSize={10} unit="%" tickLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#161228',
-                      borderColor: 'rgba(168, 85, 247, 0.3)',
-                      borderRadius: '12px',
-                      fontSize: '11px',
-                    }}
-                  />
-                  <Area type="monotone" dataKey="battery_soc" name="Battery SoC (%)" stroke="#a855f7" strokeWidth={2} fillOpacity={1} fill="url(#electraAreaFlow)" isAnimationActive={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+          {/* Fleet Cluster Filters */}
+          <div className="space-y-1 pt-3 border-t border-gray-100">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 block mb-1.5">
+              Clusters
+            </span>
+
+            {[
+              { id: 'ALL', label: 'All Fleet Nodes', count: 15, dot: 'bg-purple-600', activeBg: 'bg-purple-50 text-purple-900 border-purple-300' },
+              { id: 'CLUSTER-A', label: 'Cluster A (Metro)', count: 5, dot: 'bg-purple-600', activeBg: 'bg-purple-50 text-purple-900 border-purple-300' },
+              { id: 'CLUSTER-B', label: 'Cluster B (Sonargaon)', count: 5, dot: 'bg-purple-600', activeBg: 'bg-purple-50 text-purple-900 border-purple-300' },
+              { id: 'CLUSTER-C', label: 'Cluster C (Diabari)', count: 5, dot: 'bg-purple-600', activeBg: 'bg-purple-50 text-purple-900 border-purple-300' },
+            ].map((cl) => (
+              <button
+                key={cl.id}
+                onClick={() => handleSelectCluster(cl.id)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  clusterFilter === cl.id
+                    ? `${cl.activeBg} font-bold border shadow-xs`
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className={`w-2.5 h-2.5 rounded-full ${clusterFilter === cl.id ? cl.dot : 'bg-gray-300'}`} />
+                  <span className="truncate">{cl.label}</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">{cl.count}</span>
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* WORKSPACE RIGHT: STATION & HARDWARE NODES LIST (ELECTRA STATION LIST STYLE) */}
-        <div id="section-nodes" className={`electra-card ${highlightedSection === 'section-nodes' ? 'section-focused' : ''}`} style={{ padding: '1.4rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Radio size={18} color="var(--neon-purple)" />
-              <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>
-                Station Node List
-              </h2>
+        {/* Bottom User Card */}
+        <div className="pt-3 border-t border-gray-100 flex items-center justify-between px-1">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 font-bold text-xs flex items-center justify-center shrink-0 border border-amber-200">
+              OP
             </div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Nearby All ({poles.length})
-            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-gray-900 truncate">Control Room</p>
+              <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Admin Online</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* 2. MAIN CONTENT VIEWPORT */}
+      <main className="flex-1 relative flex flex-col h-full overflow-hidden bg-[#f8fafc] isolate">
+        {/* TOP FIXED CLEAN HEADER BAR (Light Theme) */}
+        <header className="h-14 bg-white border-b border-gray-200 px-5 flex items-center justify-between z-30 shrink-0 gap-4 shadow-xs">
+          {/* Left: Breadcrumb & Search Input */}
+          <div className="flex items-center gap-4 flex-1 max-w-xl">
+            {/* Breadcrumb */}
+            <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400 font-medium whitespace-nowrap">
+              <span>Home</span>
+              <span>/</span>
+              <span className="text-gray-900 font-bold">
+                {navTab === 'MAP' ? 'Map Viewport' : navTab === 'POLES' ? 'Fleet Inventory' : navTab === 'ALERTS' ? 'Alerts' : 'Analytics'}
+              </span>
+            </div>
+
+            {/* Quick Search */}
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search pole ID, cluster, or street..."
+                className="w-full bg-gray-50/80 hover:bg-gray-100/70 focus:bg-white border border-gray-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20 transition-all font-medium"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Pole Station List Rows */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            {poles.map((pole) => {
-              const isLit = Boolean(pole.latest_light_state);
-              const isSelected = selectedPole === pole.pole_id;
-              const brightness = dimmerValues[pole.pole_id] ?? (isLit ? 100 : 0);
-              const isCrit = Number(pole.latest_battery_soc) < 20;
+          {/* Center: Live Quick Metrics Chips */}
+          <div className="hidden xl:flex items-center gap-3 text-xs bg-gray-50 border border-gray-200/90 px-3.5 py-1.5 rounded-xl font-medium">
+            <div className="flex items-center gap-1.5" title="Active Poles Online">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-gray-500">Online:</span>
+              <span className="font-bold text-gray-900 font-mono">{totalPoles - tamperedCount}/{totalPoles}</span>
+            </div>
+            <span className="text-gray-300">|</span>
+            <div className="flex items-center gap-1.5" title="Active Streetlights Light State">
+              <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-gray-500">Lights ON:</span>
+              <span className="font-bold text-gray-900 font-mono">{activeLights}</span>
+            </div>
+            <span className="text-gray-300">|</span>
+            <div className="flex items-center gap-1.5" title="Grid Active Load">
+              <Zap className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-gray-500">Load:</span>
+              <span className="font-bold text-gray-900 font-mono">{totalPowerKW} kW</span>
+            </div>
+            <span className="text-gray-300">|</span>
+            <div className="flex items-center gap-1.5" title="Average Battery State of Charge">
+              <BatteryCharging className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="text-gray-500">Avg SoC:</span>
+              <span className="font-bold text-gray-900 font-mono">{avgBatterySoc}%</span>
+            </div>
+          </div>
 
-              return (
-                <div
-                  key={pole.pole_id}
-                  onClick={() => setSelectedPole(pole.pole_id)}
-                  style={{
-                    background: isSelected ? '#1c1733' : '#120e20',
-                    border: `1px solid ${isSelected ? 'var(--neon-purple)' : 'var(--border-subtle)'}`,
-                    borderRadius: 'var(--radius-md)',
-                    padding: '1.1rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    boxShadow: isSelected ? '0 0 20px rgba(168, 85, 247, 0.25)' : 'none',
+          {/* Right: Actions Toolbar */}
+          <div className="flex items-center gap-2">
+            {/* Reposition Mode Button */}
+            <button
+              onClick={() => {
+                const next = !isRepositionMode;
+                setIsRepositionMode(next);
+                pushToast(
+                  next ? 'Drag-to-Move Active' : 'Drag-to-Move Disabled',
+                  next ? '🖐️ Click and drag any pole marker on the map to relocate it' : 'Map markers locked',
+                  'info'
+                );
+              }}
+              title="Toggle Drag-and-Drop Pin Relocation"
+              className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 border ${
+                isRepositionMode
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm ring-2 ring-indigo-300'
+                  : 'text-gray-700 bg-gray-50 hover:bg-gray-100 border-gray-200'
+              }`}
+            >
+              <Move className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{isRepositionMode ? 'Dragging On' : 'Move Pins'}</span>
+            </button>
+
+            {/* + Add Pole Button */}
+            <button
+              onClick={() => {
+                const nextId = `POLE-${String(poles.length + 1).padStart(3, '0')}`;
+                setNewPoleForm({
+                  pole_id: nextId,
+                  name: `Smart Pole ${nextId}`,
+                  cluster_id: 'CLUSTER-A',
+                  gateway_id: 'GATEWAY-01',
+                  latitude: 23.8735,
+                  longitude: 90.3815,
+                  zone: 'Uttara Sector 18',
+                  battery_capacity_ah: 120,
+                });
+                setIsAddingPole(true);
+              }}
+              className="px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-white shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Pole</span>
+            </button>
+
+            {/* Live WebSocket Status Pill */}
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-medium border ${
+                wsConnected
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-rose-50 text-rose-700 border-rose-200'
+              }`}
+              title={`WebSocket Server: ${wsConnected ? 'Connected (4000/ws)' : 'Reconnecting...'}`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+              <span className="hidden sm:inline">{wsConnected ? 'Live' : 'Offline'}</span>
+            </div>
+
+            {/* Drawer Toggle */}
+            <button
+              onClick={() => setDrawerOpen((o) => !o)}
+              title={drawerOpen ? 'Hide Detail Drawer' : 'Show Detail Drawer'}
+              className={`p-1.5 rounded-xl border transition-all ${
+                drawerOpen ? 'bg-gray-100 text-gray-800 border-gray-300' : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200'
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
+
+        {/* MAP TAB (PRIMARY GIS VIEWPORT) */}
+        {navTab === 'MAP' && (
+          <div className="w-full h-full relative">
+            {/* Interactive Coordinate Picker Banner */}
+            {(isPickingCoordsOnMap || isRepositionMode) && (
+              <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-30 bg-white/95 backdrop-blur-xl border border-amber-400/80 px-4 py-2 rounded-2xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                <span className="text-xs font-semibold text-gray-900">
+                  {isPickingCoordsOnMap
+                    ? `🎯 Click anywhere on the map to place ${selectedPoleId}`
+                    : '🖐️ Drag any circle marker to relocate its position'}
+                </span>
+                <button
+                  onClick={() => {
+                    setIsPickingCoordsOnMap(false);
+                    setIsRepositionMode(false);
                   }}
+                  className="px-2.5 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg border border-gray-200 font-semibold shadow-xs"
                 >
-                  {/* Top Row: Avatar + Title + Main ON/OFF */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      {/* Avatar with Status Ring */}
-                      <div
-                        style={{
-                          width: '38px',
-                          height: '38px',
-                          borderRadius: '50%',
-                          background: isLit
-                            ? 'radial-gradient(circle, #fbbf24, #f59e0b)'
-                            : '#251f44',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          boxShadow: isLit ? '0 0 15px rgba(251, 191, 36, 0.6)' : 'none',
-                        }}
-                      >
-                        <Lightbulb size={18} color={isLit ? '#0f172a' : '#64748b'} />
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                          <span style={{ fontSize: '1rem', fontWeight: 800, color: '#fff' }}>
-                            {pole.pole_id}
-                          </span>
-                          <span style={{ fontSize: '0.65rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: '4px', background: isLit ? 'rgba(251, 191, 36, 0.15)' : '#251f44', color: isLit ? 'var(--neon-gold)' : 'var(--text-muted)' }}>
-                            {isLit ? `LIT (${brightness}%)` : 'OFF'}
-                          </span>
+                  Done
+                </button>
+              </div>
+            )}
+
+            <Map
+              ref={mapRef}
+              initialViewState={{
+                longitude: 90.3820,
+                latitude: 23.8745,
+                zoom: 15.3,
+                bearing: -15,
+                pitch: 60,
+              }}
+              maxPitch={85}
+              dragRotate={true}
+              pitchWithRotate={true}
+              touchPitch={true}
+              mapStyle={MAP_STYLES[mapStyleKey] || MAP_STYLES.positron}
+              style={{ width: '100%', height: '100%' }}
+              attributionControl={false}
+              onClick={handleMapClick}
+              cursor={isPickingCoordsOnMap || isAddingPole ? 'crosshair' : (isRepositionMode ? 'grab' : 'default')}
+            >
+              <NavigationControl position="bottom-left" showCompass={true} visualizePitch={true} />
+
+              {/* Floating Basemap Style & 3D Perspective Picker (Clean White Glass) */}
+              <div className="absolute bottom-6 left-16 z-30 flex items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-xl">
+                {/* 3D Perspective Quick Tilt Button */}
+                <button
+                  onClick={() => {
+                    if (!mapRef.current) return;
+                    const currentPitch = mapRef.current.getPitch();
+                    const nextPitch = currentPitch > 25 ? 0 : 60;
+                    mapRef.current.easeTo({
+                      pitch: nextPitch,
+                      bearing: nextPitch > 25 ? -15 : 0,
+                      duration: 800,
+                    });
+                  }}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200 transition-all flex items-center gap-1.5 shadow-xs"
+                  title="Toggle 2D Top-Down / 3D Angled Perspective"
+                >
+                  <Compass className="w-3.5 h-3.5 text-amber-500" />
+                  <span>3D Angle</span>
+                </button>
+
+                <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
+
+                {[
+                  { id: 'positron', label: 'Positron Light', icon: '☀️' },
+                  { id: 'dark', label: 'Dark Matter', icon: '🌙' },
+                  { id: 'voyager', label: 'Voyager Streets', icon: '🗺️' },
+                  { id: 'satellite', label: 'Satellite', icon: '🛰️' },
+                ].map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setMapStyleKey(s.id)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 ${
+                      mapStyleKey === s.id
+                        ? 'bg-amber-500 text-white shadow-xs font-bold'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span>{s.icon}</span>
+                    <span>{s.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Dynamic Mesh Network Lines connecting each neighbor Street Lamp Pole to its Cluster Master Pole */}
+              <Source id="cluster-mesh-network" type="geojson" data={meshLinesGeoJson}>
+                <Layer
+                  id="mesh-lines-glow"
+                  type="line"
+                  paint={{
+                    'line-color': '#a855f7',
+                    'line-width': 5,
+                    'line-opacity': 0.4,
+                  }}
+                />
+                <Layer
+                  id="mesh-lines-layer"
+                  type="line"
+                  paint={{
+                    'line-color': '#7c3aed',
+                    'line-width': 2.5,
+                    'line-opacity': 0.9,
+                    'line-dasharray': [2, 2],
+                  }}
+                />
+              </Source>
+
+              {/* Cluster Master Poles (Sensor Hub & Gateway Poles - Not Street Lamps) */}
+              {GATEWAYS.map((gw) => {
+                const isGatewayClusterSelected = clusterFilter === 'ALL' || gw.cluster_id === clusterFilter;
+                const isSelected = selectedPoleId === gw.id || selectedPoleId === gw.pole_id;
+                const isHovered = hoveredPole?.id === gw.id || hoveredPole?.pole_id === gw.pole_id;
+                const gwDepthZ = Math.round((23.89 - Number(gw.lat)) * 10000);
+                const gwZIndex = isSelected ? 500 : (isHovered ? 400 : gwDepthZ);
+
+                return (
+                  <Marker
+                    key={gw.id}
+                    longitude={gw.lng}
+                    latitude={gw.lat}
+                    anchor="bottom"
+                    style={{ zIndex: gwZIndex }}
+                    onClick={(e) => {
+                      e.originalEvent.stopPropagation();
+                      focusOnPole(gw);
+                    }}
+                  >
+                    <div
+                      onMouseEnter={() => setHoveredPole(gw)}
+                      onMouseLeave={() => setHoveredPole(null)}
+                      className={`relative flex flex-col items-center group cursor-pointer overflow-visible transition-all duration-300 ${
+                        isGatewayClusterSelected ? 'opacity-100 scale-100' : 'opacity-80 scale-95'
+                      } ${isSelected ? 'scale-125 -translate-y-1' : 'hover:scale-120 hover:-translate-y-1'}`}
+                    >
+                      {/* Clean Purple Teardrop Cluster Master Pole Pin */}
+                      <div className="relative w-9 h-11 filter drop-shadow-md overflow-visible">
+                        <svg width="36" height="44" viewBox="0 0 36 44" fill="none" xmlns="http://www.w3.org/2000/svg" className="overflow-visible">
+                          <path
+                            d="M18 3C10.82 3 5 8.82 5 16C5 25.5 16.6 37.8 17.4 38.6C17.75 38.95 18.25 38.95 18.6 38.6C19.4 37.8 31 25.5 31 16C31 8.82 25.18 3 18 3Z"
+                            fill="#8b5cf6"
+                            stroke={isSelected ? '#1e1b4b' : '#ffffff'}
+                            strokeWidth={isSelected ? '2' : '1.5'}
+                            strokeLinejoin="round"
+                          />
+                          <circle cx="18" cy="16" r="9.5" fill="#ffffff" />
+                        </svg>
+                        <div className="absolute top-[7px] left-[9px] w-[18px] h-[18px] flex items-center justify-center pointer-events-none">
+                          <Radio className="w-3.5 h-3.5 text-purple-600 stroke-[2]" />
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-                          {pole.zone}
+                      </div>
+
+                      {/* Pin Tip Ground Shadow */}
+                      <div className="w-3 h-1 bg-black/25 rounded-full blur-[1px] -mt-0.5" />
+                    </div>
+                  </Marker>
+                );
+              })}
+
+              {/* Smart Pole GIS Teardrop Pin Markers (ALL Street Lamps are Yellow/Amber) */}
+              {mapPoles.map((pole) => {
+                const isSelected = pole.pole_id === selectedPoleId;
+                const isHovered = hoveredPole?.pole_id === pole.pole_id;
+                const isLightOn = pole.latest_light_state || pole.is_on;
+                const isTampered = pole.status === 'TAMPER/CRITICAL' || pole.latest_tamper_status;
+                const canDrag = isRepositionMode || (isEditingCoords && isSelected);
+                const isClusterMatch = clusterFilter === 'ALL' || pole.cluster_id === clusterFilter;
+                const depthZIndex = Math.round((23.89 - Number(pole.latitude)) * 10000);
+                const markerZIndex = isSelected ? 500 : (isHovered ? 400 : depthZIndex);
+
+                // All street lamps are Yellow / Amber (or Red for Tamper alert)
+                const pinColor = isTampered
+                  ? '#ef4444' // Red for Tamper
+                  : '#f59e0b'; // Vibrant Yellow / Amber for ALL Street Lamps
+
+                return (
+                  <Marker
+                    key={pole.pole_id}
+                    longitude={Number(pole.longitude)}
+                    latitude={Number(pole.latitude)}
+                    anchor="bottom"
+                    draggable={canDrag}
+                    style={{ zIndex: markerZIndex }}
+                    onDragEnd={(e) => handleMarkerDragEnd(pole.pole_id, e.lngLat)}
+                    onClick={(e) => {
+                      e.originalEvent.stopPropagation();
+                      focusOnPole(pole);
+                    }}
+                  >
+                    <div
+                      onMouseEnter={() => setHoveredPole(pole)}
+                      onMouseLeave={() => setHoveredPole(null)}
+                      className={`group relative flex flex-col items-center cursor-pointer transition-all duration-200 overflow-visible ${
+                        canDrag ? 'cursor-grab active:cursor-grabbing' : ''
+                      } ${isSelected ? 'scale-125 -translate-y-1' : 'hover:scale-120 hover:-translate-y-1'} ${
+                        isClusterMatch ? 'opacity-100' : 'opacity-80'
+                      }`}
+                    >
+                      {/* Drag Halo ring when in repositioning mode */}
+                      {canDrag && (
+                        <div className="absolute -top-1 w-11 h-11 rounded-full border-2 border-dashed border-indigo-500 animate-spin-slow pointer-events-none" />
+                      )}
+
+                      {/* Ambient Ground Glow when Light is ON (Warm Yellow Glow) */}
+                      {isLightOn && (
+                        <div className="absolute bottom-0 w-8 h-4 rounded-full bg-amber-400/35 blur-sm pointer-events-none -z-10" />
+                      )}
+
+                      {/* Tamper Warning Pulse underneath pin */}
+                      {isTampered && (
+                        <div className="absolute -top-1 w-11 h-11 rounded-full bg-rose-500/20 border border-rose-500/50 animate-ping pointer-events-none" />
+                      )}
+
+                      {/* Teardrop Pin Shape with White Inner Circular Core */}
+                      <div className="relative w-9 h-11 filter drop-shadow-md overflow-visible">
+                        <svg width="36" height="44" viewBox="0 0 36 44" fill="none" xmlns="http://www.w3.org/2000/svg" className="overflow-visible">
+                          {/* Teardrop Pin Path */}
+                          <path
+                            d="M18 3C10.82 3 5 8.82 5 16C5 25.5 16.6 37.8 17.4 38.6C17.75 38.95 18.25 38.95 18.6 38.6C19.4 37.8 31 25.5 31 16C31 8.82 25.18 3 18 3Z"
+                            fill={pinColor}
+                            stroke={isSelected ? '#1e1b4b' : '#ffffff'}
+                            strokeWidth={isSelected ? '2' : '1.5'}
+                            strokeLinejoin="round"
+                          />
+                          {/* Inner White Circle */}
+                          <circle cx="18" cy="16" r="9.5" fill="#ffffff" />
+                        </svg>
+
+                        {/* Centered Status Icon inside the White Core */}
+                        <div className="absolute top-[7px] left-[9px] w-[18px] h-[18px] flex items-center justify-center pointer-events-none">
+                          {isTampered ? (
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-bounce" />
+                          ) : isLightOn ? (
+                            <Lightbulb className="w-3.5 h-3.5 text-amber-500 fill-amber-400 drop-shadow-xs" />
+                          ) : (
+                            <LightbulbOff className="w-3.5 h-3.5 text-slate-400 stroke-[1.75]" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Pin Tip Ground Shadow */}
+                      <div className="w-3 h-1 bg-black/25 rounded-full blur-[1px] -mt-0.5" />
+                    </div>
+                  </Marker>
+                );
+              })}
+
+              {/* Global High-Z-Index Hover Tooltip (Never covered or clipped by sibling markers) */}
+              {hoveredPole && (
+                <Popup
+                  longitude={Number(hoveredPole.longitude || hoveredPole.lng)}
+                  latitude={Number(hoveredPole.latitude || hoveredPole.lat)}
+                  offset={[0, -48]}
+                  closeButton={false}
+                  closeOnClick={false}
+                  anchor="bottom"
+                  maxWidth="none"
+                >
+                  <div className="bg-white/95 backdrop-blur-md border border-gray-200 px-3.5 py-2 rounded-2xl shadow-2xl flex flex-col gap-1 pointer-events-none whitespace-nowrap animate-in fade-in zoom-in-95 duration-100">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{
+                            backgroundColor:
+                              hoveredPole.type === 'CLUSTER_MASTER_POLE'
+                                ? '#8b5cf6'
+                                : (hoveredPole.status === 'TAMPER/CRITICAL' || hoveredPole.latest_tamper_status)
+                                ? '#ef4444'
+                                : '#f59e0b',
+                          }}
+                        />
+                        <span className="text-xs font-extrabold text-gray-900 tracking-tight">
+                          {hoveredPole.name}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200 shrink-0">
+                        {hoveredPole.cluster_id}
+                      </span>
+                    </div>
+
+                    {hoveredPole.type === 'CLUSTER_MASTER_POLE' ? (
+                      <span className="text-[10px] font-bold text-purple-700">
+                        🛰️ Sensor Gateway Pole • 5 Neighbor Lamps Connected
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2 text-[10px] text-gray-500 font-mono">
+                        <span className="font-bold text-amber-600">{hoveredPole.pole_id}</span>
+                        <span>•</span>
+                        <span className="text-gray-700">{hoveredPole.latest_voltage || 230}V</span>
+                        <span>•</span>
+                        <span className={hoveredPole.latest_light_state || hoveredPole.is_on ? 'text-emerald-600 font-semibold' : 'text-gray-400'}>
+                          {hoveredPole.latest_light_state || hoveredPole.is_on
+                            ? `${hoveredPole.latest_brightness ?? 100}% ON`
+                            : 'OFF'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </Popup>
+              )}
+            </Map>
+          </div>
+        )}
+
+        {/* POLES TABLE VIEW TAB */}
+        {navTab === 'POLES' && (
+          <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
+            <div className="max-w-6xl mx-auto">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 tracking-tight">Smart Pole Fleet Inventory</h2>
+                  <p className="text-xs text-gray-500 font-medium">15 GIS assets operating across Uttara Sector 18 / Diabari</p>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
+                <table className="w-full text-left text-xs text-gray-700">
+                  <thead className="bg-gray-50 text-gray-500 uppercase font-bold text-[10px] tracking-wider border-b border-gray-200">
+                    <tr>
+                      <th className="py-3.5 px-4">Pole ID & Name</th>
+                      <th className="py-3.5 px-4">Cluster & Gateway</th>
+                      <th className="py-3.5 px-4">Coordinates</th>
+                      <th className="py-3.5 px-4">Battery SoC</th>
+                      <th className="py-3.5 px-4">Active Power</th>
+                      <th className="py-3.5 px-4">Light State</th>
+                      <th className="py-3.5 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredPoles.map((p) => {
+                      const isSelected = p.pole_id === selectedPoleId;
+                      const isLightOn = p.latest_light_state || p.is_on;
+                      const isTampered = p.status === 'TAMPER/CRITICAL' || p.latest_tamper_status;
+
+                      return (
+                        <tr
+                          key={p.pole_id}
+                          onClick={() => focusOnPole(p)}
+                          className={`hover:bg-gray-50/80 cursor-pointer transition-colors ${
+                            isSelected ? 'bg-amber-50/60' : ''
+                          }`}
+                        >
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-gray-900 flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${isTampered ? 'bg-rose-500 animate-ping' : isLightOn ? 'bg-amber-500' : 'bg-gray-300'}`} />
+                              {p.pole_id}
+                            </div>
+                            <div className="text-[11px] text-gray-500">{p.name}</div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="text-gray-800 font-semibold">{p.cluster_id}</div>
+                            <div className="text-[10px] text-indigo-600 font-medium">{p.gateway_id}</div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-[11px] text-gray-500">
+                            {Number(p.latitude)?.toFixed(4)}, {Number(p.longitude)?.toFixed(4)}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-emerald-500 rounded-full"
+                                  style={{ width: `${p.latest_battery_soc || 90}%` }}
+                                />
+                              </div>
+                              <span className="font-mono text-emerald-600 font-bold">{p.latest_battery_soc || 90}%</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-gray-800 font-semibold">
+                            {p.latest_power_watts || 195} W
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                isLightOn
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-gray-100 text-gray-600 border border-gray-200'
+                              }`}
+                            >
+                              {isLightOn ? `${p.latest_brightness ?? 100}% ON` : 'OFF'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                dispatchControl(p.pole_id, !isLightOn, isLightOn ? 0 : 100);
+                              }}
+                              className={`p-1.5 rounded-lg border text-xs transition-all ${
+                                isLightOn
+                                  ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
+                                  : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
+                              }`}
+                            >
+                              <Power className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ALERTS TAB */}
+        {navTab === 'ALERTS' && (
+          <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 tracking-tight">ISA-18.2 Alarm Lifecycle</h2>
+                  <p className="text-xs text-gray-500 font-medium">Stateful telemetry threshold & physical tamper events</p>
+                </div>
+                <button
+                  onClick={() => fetch('/api/alerts/resolve-all', { method: 'POST' }).then(() => fetchData())}
+                  className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-800 rounded-xl border border-gray-200 transition-all flex items-center gap-1.5 shadow-xs"
+                >
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  Resolve All Alarms
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {alerts.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500 bg-white rounded-2xl border border-gray-200">
+                    <ShieldCheck className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+                    No active alarm anomalies in system.
+                  </div>
+                ) : (
+                  alerts.map((a) => (
+                    <div
+                      key={a.id}
+                      className={`p-4 rounded-2xl border flex items-start justify-between gap-4 transition-all bg-white ${
+                        a.status === 'ACTIVE'
+                          ? a.severity === 'CRITICAL'
+                            ? 'border-rose-300 shadow-sm text-rose-900'
+                            : 'border-amber-300 shadow-sm text-amber-900'
+                          : 'border-gray-200 text-gray-400'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`p-2 rounded-xl border ${
+                            a.status === 'ACTIVE'
+                              ? a.severity === 'CRITICAL'
+                                ? 'bg-rose-50 border-rose-200 text-rose-600'
+                                : 'bg-amber-50 border-amber-200 text-amber-600'
+                              : 'bg-gray-100 border-gray-200 text-gray-400'
+                          }`}
+                        >
+                          <AlertTriangle className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-bold text-sm text-gray-900">{a.pole_id}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-gray-100 border border-gray-200 text-gray-700">
+                              {a.alert_type}
+                            </span>
+                            <span className="text-[10px] text-gray-400">{formatTime(a.last_seen_at || a.created_at)}</span>
+                          </div>
+                          <p className="text-xs text-gray-600">{a.message}</p>
+                        </div>
+                      </div>
+
+                      {a.status === 'ACTIVE' && (
+                        <button
+                          onClick={() => handleResolveAlerts(a.pole_id)}
+                          className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1 shrink-0 shadow-xs"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Clear Alert
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ANALYTICS TAB */}
+        {navTab === 'ANALYTICS' && (
+          <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 tracking-tight">Energy & Microgrid Analytics</h2>
+                <p className="text-xs text-gray-500 font-medium">Microgrid cluster distribution and solar power generation metrics</p>
+              </div>
+
+              {/* Cluster Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {GATEWAYS.map((gw) => {
+                  const clusterPoles = poles.filter((p) => p.cluster_id === gw.cluster_id);
+                  const clusterLoad = (
+                    clusterPoles.reduce((s, p) => s + Number(p.latest_power_watts || 190), 0) / 1000
+                  ).toFixed(2);
+                  const clusterAvgSoc = clusterPoles.length > 0
+                    ? Math.round(clusterPoles.reduce((s, p) => s + Number(p.latest_battery_soc || 90), 0) / clusterPoles.length)
+                    : 0;
+
+                  return (
+                    <div key={gw.id} className="p-5 rounded-2xl bg-white border border-gray-200 shadow-xs">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-bold text-indigo-600">{gw.id}</span>
+                        <span className="text-[10px] text-gray-400 font-mono">{clusterPoles.length} Nodes</span>
+                      </div>
+                      <h3 className="text-sm font-bold text-gray-900 mb-4 truncate">{gw.cluster_name}</h3>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-200/80">
+                          <span className="text-[10px] text-gray-400 block mb-0.5 font-medium">Active Load</span>
+                          <span className="font-bold text-amber-600 font-mono text-sm">{clusterLoad} kW</span>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-200/80">
+                          <span className="text-[10px] text-gray-400 block mb-0.5 font-medium">Avg Battery SoC</span>
+                          <span className="font-bold text-emerald-600 font-mono text-sm">{clusterAvgSoc}%</span>
                         </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
 
-                    {/* Actuation Button (Electra Book Now Button Style) */}
+      {/* 3. RIGHT SLIDING DETAIL DRAWER — CLEAN LIGHT CHARGEHUB PANEL */}
+      <div
+        className={`fixed top-0 right-0 h-full w-[390px] max-w-full bg-white border-l border-gray-200 shadow-2xl flex flex-col z-[99999] transition-transform duration-300 ease-out ${
+          drawerOpen && selectedPole ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+        }`}
+      >
+        {selectedPole && (
+          <div className="flex-1 flex flex-col h-full overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 transparent' }}>
+
+            {/* ── ACCENT HEADER BAR ── */}
+            <div className={`px-5 py-3.5 flex items-center justify-between shrink-0 ${
+              selectedPole.status === 'TAMPER/CRITICAL' || selectedPole.latest_tamper_status
+                ? 'bg-gradient-to-r from-rose-500 to-rose-600'
+                : 'bg-gradient-to-r from-amber-500 to-amber-600'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <Lightbulb className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white tracking-wide">{selectedPole.pole_id}</h3>
+                  <span className="text-[11px] text-amber-100 font-mono">
+                    {Number(selectedPole.latitude)?.toFixed(5)}, {Number(selectedPole.longitude)?.toFixed(5)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleCopyCoords(selectedPole.latitude, selectedPole.longitude)}
+                  className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white transition-all"
+                  title="Copy Coordinates"
+                >
+                  {copiedCoords ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* ── DEVICE SUMMARY CARD ── */}
+            <div className="p-4 border-b border-gray-100 bg-gray-50/60">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <h4 className="text-sm font-bold text-gray-900">{selectedPole.name}</h4>
+                  <p className="text-[11px] text-gray-500 font-medium">
+                    {selectedPole.type === 'CLUSTER_MASTER_POLE'
+                      ? 'Cluster Master Pole • Sensor Concentrator & Server Uplink'
+                      : selectedPole.zone || 'Uttara Sector 18, Dhaka 1230'}
+                  </p>
+                </div>
+                <span
+                  className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                    selectedPole.type === 'CLUSTER_MASTER_POLE'
+                      ? 'bg-purple-50 text-purple-700 border-purple-200'
+                      : selectedPole.status === 'TAMPER/CRITICAL' || selectedPole.latest_tamper_status
+                      ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  }`}
+                >
+                  {selectedPole.type === 'CLUSTER_MASTER_POLE'
+                    ? 'SENSOR GATEWAY'
+                    : selectedPole.status === 'TAMPER/CRITICAL' || selectedPole.latest_tamper_status
+                    ? 'TAMPER'
+                    : 'ONLINE'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] text-gray-500 font-medium">
+                <span className="font-bold text-amber-600">{selectedPole.cluster_id}</span>
+                <span>•</span>
+                {selectedPole.type === 'CLUSTER_MASTER_POLE' ? (
+                  <span className="text-purple-700 font-semibold">4G LTE / MQTT Uplink Active</span>
+                ) : (
+                  <span className="text-gray-600">Routes via {selectedPole.gateway_id}</span>
+                )}
+                <span>•</span>
+                <span>{selectedPole.type === 'CLUSTER_MASTER_POLE' ? '5 Connected Lamps' : `LiFePO4 ${selectedPole.battery_capacity_ah || 120}Ah`}</span>
+              </div>
+            </div>
+
+            {/* ── CLUSTER MASTER POLE SENSOR CONCENTRATOR VIEW ── */}
+            {selectedPole.type === 'CLUSTER_MASTER_POLE' ? (
+              <div className="p-4 space-y-4 border-b border-gray-100">
+                {/* Connected Neighbor Poles Strip */}
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-2">
+                    Connected Neighbor Street Lamps (5 Nodes)
+                  </span>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {poles
+                      .filter((p) => p.cluster_id === selectedPole.cluster_id)
+                      .map((np) => (
+                        <div
+                          key={np.pole_id}
+                          onClick={() => focusOnPole(np)}
+                          className="flex items-center justify-between p-2 rounded-xl bg-white border border-gray-200 hover:border-amber-300 hover:bg-amber-50/50 cursor-pointer transition-all shadow-2xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            <span className="text-xs font-bold text-gray-900">{np.pole_id}</span>
+                            <span className="text-[10px] text-gray-500 truncate max-w-[140px]">{np.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] font-mono">
+                            <span className={np.latest_light_state ? 'text-amber-600 font-bold' : 'text-gray-400'}>
+                              {np.latest_light_state ? `${np.latest_brightness ?? 100}% ON` : 'OFF'}
+                            </span>
+                            <span className="text-emerald-600 font-bold">{np.latest_battery_soc || 90}% SoC</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Environmental & Uplink Sensors */}
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-2">
+                    Master Pole Sensors & Telemetry Stream
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-200">
+                      <span className="text-[10px] text-gray-500 font-medium block">Ambient Lux</span>
+                      <span className="text-sm font-bold text-gray-900 font-mono">18.4 lx</span>
+                    </div>
+                    <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-200">
+                      <span className="text-[10px] text-gray-500 font-medium block">Weather Temp</span>
+                      <span className="text-sm font-bold text-gray-900 font-mono">29.2 °C</span>
+                    </div>
+                    <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-200">
+                      <span className="text-[10px] text-gray-500 font-medium block">Server Latency</span>
+                      <span className="text-sm font-bold text-emerald-600 font-mono">18 ms</span>
+                    </div>
+                    <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-200">
+                      <span className="text-[10px] text-gray-500 font-medium block">Mesh RF Health</span>
+                      <span className="text-sm font-bold text-purple-700 font-mono">-64 dBm</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cluster Actions */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => pushToast('Mesh Synchronized', `📡 Telemetry burst pulled from all 5 neighbors into ${selectedPole.pole_id}`, 'success')}
+                    className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Sync Cluster Telemetry to Server</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* ── CHARGEHUB-STYLE 2x2 METRIC GRID FOR STREET LAMPS ── */}
+                <div className="p-4 border-b border-gray-100">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* Active Power Box */}
+                    <div className="p-3 bg-white rounded-xl border border-gray-200 shadow-xs hover:border-gray-300 transition-colors">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
+                        Active Power
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-xl font-extrabold text-gray-900 font-mono">
+                          {selectedPole.latest_power_watts || 195.0}
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-semibold">W</span>
+                      </div>
+                      <span className="text-[10px] text-gray-500 mt-1 block">
+                        Line: {selectedPole.latest_voltage || 230}V
+                      </span>
+                    </div>
+
+                    {/* Energy Consumption Box */}
+                    <div className="p-3 bg-white rounded-xl border border-gray-200 shadow-xs hover:border-gray-300 transition-colors">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
+                        Energy Meter
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-xl font-extrabold text-gray-900 font-mono">
+                          {selectedPole.latest_energy_kwh || 0.125}
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-semibold">kWh</span>
+                      </div>
+                      <span className="text-[10px] text-gray-500 mt-1 block">
+                        Current: {selectedPole.latest_current || 0.85}A
+                      </span>
+                    </div>
+
+                    {/* Battery SoC Box */}
+                    <div className="p-3 bg-white rounded-xl border border-gray-200 shadow-xs hover:border-gray-300 transition-colors">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
+                        Battery SoC
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-xl font-extrabold text-emerald-600 font-mono">
+                          {selectedPole.latest_battery_soc || 90}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-100 rounded-full mt-2 overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                          style={{ width: `${selectedPole.latest_battery_soc || 90}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Estimated Backup Runtime */}
+                    <div className="p-3 bg-white rounded-xl border border-gray-200 shadow-xs hover:border-gray-300 transition-colors">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
+                        Backup Time
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-xl font-extrabold text-gray-900 font-mono">
+                          {formatRuntime(selectedPole.latest_estimated_runtime_minutes || 480)}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-gray-500 mt-1 block">
+                        Temp: {selectedPole.latest_battery_temp || 28.5}°C
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Secondary Sensor Strip */}
+                  <div className="grid grid-cols-3 gap-2 mt-2.5 pt-2.5 border-t border-gray-100 text-center">
+                    <div className="p-2 bg-gray-50 rounded-xl border border-gray-100">
+                      <span className="text-[10px] text-gray-400 block font-medium">Battery Volt</span>
+                      <span className="text-xs font-bold text-gray-800 font-mono">{selectedPole.latest_battery_voltage || 14.1}V</span>
+                    </div>
+                    <div className="p-2 bg-gray-50 rounded-xl border border-gray-100">
+                      <span className="text-[10px] text-gray-400 block font-medium">Battery Curr</span>
+                      <span className={`text-xs font-bold font-mono ${(selectedPole.latest_battery_current || -1.8) >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {selectedPole.latest_battery_current || -1.8}A
+                      </span>
+                    </div>
+                    <div className="p-2 bg-gray-50 rounded-xl border border-gray-100">
+                      <span className="text-[10px] text-gray-400 block font-medium">Ambient Lux</span>
+                      <span className="text-xs font-bold text-gray-800 font-mono">{selectedPole.latest_ambient_light_lux || 15.0} lx</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── LIGHT ACTUATOR & DIMMER CONTROL ── */}
+                <div className="p-4 border-b border-gray-100">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-2.5">
+                    Actuator & Dimmer Control
+                  </span>
+
+                  {/* Power Switch Row */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-200 mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${
+                        selectedPole.latest_light_state || selectedPole.is_on
+                          ? 'bg-amber-100 text-amber-600 border-amber-300'
+                          : 'bg-gray-200 text-gray-400 border-gray-300'
+                      }`}>
+                        <Power className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">Smart Luminaire</span>
+                        <span className="text-[10px] text-gray-500">
+                          {selectedPole.latest_light_state || selectedPole.is_on ? 'Currently Illuminating' : 'Standby / Charging'}
+                        </span>
+                      </div>
+                    </div>
+
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleToggleLight(pole.pole_id, isLit);
-                      }}
-                      className={isLit ? 'btn-electra-gold' : 'btn-electra-primary'}
-                      style={{ padding: '0.45rem 0.9rem', fontSize: '0.75rem', cursor: 'pointer' }}
+                      onClick={handleToggleLight}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${
+                        selectedPole.latest_light_state || selectedPole.is_on ? 'bg-amber-500' : 'bg-gray-300'
+                      }`}
                     >
-                      <Power size={13} />
-                      {isLit ? 'Turn OFF' : 'Turn ON'}
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                          selectedPole.latest_light_state || selectedPole.is_on ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
                     </button>
                   </div>
 
-                  {/* Dimming Slider Strip */}
-                  <div style={{ marginBottom: '0.85rem', background: '#0a0814', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)' }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '0.3rem' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Dimming Output</span>
-                      <span style={{ color: 'var(--neon-magenta)', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{brightness}%</span>
+                  {/* Brightness Slider */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-gray-500 font-medium">Brightness Level</span>
+                      <span className="font-mono font-bold text-amber-600">
+                        {dimmerValues[selectedPole.pole_id] !== undefined
+                          ? dimmerValues[selectedPole.pole_id]
+                          : (selectedPole.latest_brightness ?? (selectedPole.latest_light_state ? 100 : 0))}%
+                      </span>
                     </div>
+
                     <input
                       type="range"
                       min="0"
                       max="100"
-                      step="1"
-                      value={brightness}
-                      onChange={(e) => handleSliderChange(pole.pole_id, Number(e.target.value))}
-                      className="electra-slider"
+                      value={
+                        dimmerValues[selectedPole.pole_id] !== undefined
+                          ? dimmerValues[selectedPole.pole_id]
+                          : (selectedPole.latest_brightness ?? (selectedPole.latest_light_state ? 100 : 0))
+                      }
+                      onChange={handleDimmerChange}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-amber-500"
                     />
-                  </div>
 
-                  {/* Tactile Hardware Action Buttons */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    <button
-                      className={`btn-tamper-pill ${tamperState[pole.pole_id] ? 'triggered' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        triggerTamperAlert(pole.pole_id);
-                      }}
-                      title="Simulate physical security breach / theft sensor (Press 'T')"
-                    >
-                      <ShieldAlert size={13} />
-                      {tamperState[pole.pole_id] ? '⚠️ ALARM TRIGGERED!' : 'Simulate Theft / Tamper'}
-                      <span style={{ fontSize: '0.6rem', background: 'rgba(0,0,0,0.4)', padding: '0.05rem 0.3rem', borderRadius: '3px', marginLeft: '0.2rem' }}>[T]</span>
-                    </button>
-
-                    <div style={{ display: 'flex', gap: '0.3rem' }}>
-                      <button
-                        className={`btn-resolve-pill ${clearState[pole.pole_id] ? 'cleared' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          resolvePoleAlerts(pole.pole_id);
-                        }}
-                        title="Acknowledge and reset all active critical alarms (Press 'C')"
-                      >
-                        <CheckCircle size={13} />
-                        {clearState[pole.pole_id] ? '✓ Cleared' : 'Resolve'}
-                      </button>
-
-                      <button
-                        className="btn-electra-pill"
-                        style={{ padding: '0.35rem 0.65rem', fontSize: '0.7rem' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          showToast('Heartbeat Ping', `ACK latency 12ms for ${pole.pole_id}`, 'info');
-                        }}
-                        title="Diagnostic Ping"
-                      >
-                        Ping
-                      </button>
+                    {/* Preset Brightness Pills */}
+                    <div className="flex gap-1.5 pt-1">
+                      {[
+                        { label: '0%', val: 0 },
+                        { label: '30%', val: 30 },
+                        { label: '50%', val: 50 },
+                        { label: '80%', val: 80 },
+                        { label: '100%', val: 100 },
+                      ].map((preset) => (
+                        <button
+                          key={preset.val}
+                          onClick={() => {
+                            setDimmerValues((prev) => ({ ...prev, [selectedPole.pole_id]: preset.val }));
+                            dispatchControl(selectedPole.pole_id, preset.val > 0, preset.val);
+                          }}
+                          className={`flex-1 py-1 text-[10px] font-bold rounded-lg border transition-all ${
+                            (dimmerValues[selectedPole.pole_id] ?? 100) === preset.val
+                              ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                              : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
-              );
-            })}
+              </>
+            )}
+
+            {/* ── COORDINATES & POSITION MANAGER ── */}
+            <div className="p-4 border-b border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                  GPS Coordinates
+                </span>
+                <button
+                  onClick={() => setIsEditingCoords((e) => !e)}
+                  className={`text-[10px] px-2 py-0.5 rounded-md font-semibold transition-all ${
+                    isEditingCoords
+                      ? 'bg-amber-500 text-white font-bold'
+                      : 'text-amber-600 hover:text-amber-700 font-bold'
+                  }`}
+                >
+                  {isEditingCoords ? 'Done' : 'Edit Coords'}
+                </button>
+              </div>
+
+              {isEditingCoords ? (
+                <div className="space-y-2.5 animate-in fade-in">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gray-400 block mb-0.5">Latitude</label>
+                      <input
+                        type="number"
+                        step="0.000001"
+                        value={coordsInput.lat}
+                        onChange={(e) => setCoordsInput((prev) => ({ ...prev, lat: e.target.value }))}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-xs font-mono text-gray-900 focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400 block mb-0.5">Longitude</label>
+                      <input
+                        type="number"
+                        step="0.000001"
+                        value={coordsInput.lng}
+                        onChange={(e) => setCoordsInput((prev) => ({ ...prev, lng: e.target.value }))}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-xs font-mono text-gray-900 focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPickingCoordsOnMap(true);
+                        pushToast('Map Click Mode', `📍 Click on the map to set coordinates for ${selectedPole.pole_id}`, 'info');
+                      }}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold border flex items-center justify-center gap-1.5 transition-all ${
+                        isPickingCoordsOnMap
+                          ? 'bg-amber-50 text-amber-700 border-amber-300 animate-pulse'
+                          : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'
+                      }`}
+                    >
+                      <Target className="w-3 h-3" />
+                      <span>{isPickingCoordsOnMap ? 'Click map...' : 'Pick on Map'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveManualCoords}
+                      className="flex-1 py-1.5 px-2 bg-amber-500 hover:bg-amber-400 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Save className="w-3 h-3" />
+                      <span>Save</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePole(selectedPole.pole_id)}
+                      className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-gray-200"
+                      title="Delete Pole"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-gray-50 border border-gray-200 text-xs">
+                  <div className="flex items-center gap-1.5 text-gray-700 font-mono text-[11px]">
+                    <MapPin className="w-3.5 h-3.5 text-amber-500" />
+                    <span>{Number(selectedPole.latitude)?.toFixed(5)}, {Number(selectedPole.longitude)?.toFixed(5)}</span>
+                  </div>
+                  <button
+                    onClick={() => handleCopyCoords(selectedPole.latitude, selectedPole.longitude)}
+                    className="text-[10px] text-gray-500 hover:text-gray-900 font-semibold"
+                  >
+                    {copiedCoords ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* ── MONITORED-STYLE MINI TELEMETRY CHART ── */}
+            <div className="p-4 border-b border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                  Live Telemetry Sparkline
+                </span>
+                <span className="text-[10px] text-gray-400 font-mono">Rolling 30 Frames</span>
+              </div>
+
+              <div className="h-32 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={telemetryHistory} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorVoltage" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0} />
+                      </linearGradient>
+                      <linearGradient id="colorSoc" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="time" stroke="#94a3b8" fontSize={9} tickLine={false} />
+                    <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} domain={['auto', 'auto']} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '0.5rem',
+                        fontSize: '11px',
+                        color: '#1e293b',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="battery_soc"
+                      name="SoC (%)"
+                      stroke="#10b981"
+                      strokeWidth={1.5}
+                      fillOpacity={1}
+                      fill="url(#colorSoc)"
+                      isAnimationActive={false}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="power"
+                      name="Power (W)"
+                      stroke="#f59e0b"
+                      strokeWidth={1.5}
+                      fillOpacity={1}
+                      fill="url(#colorVoltage)"
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* ── EMERGENCY ACTIONS FOOTER ── */}
+            <div className="p-4 mt-auto">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleTriggerTamper(selectedPole.pole_id)}
+                  className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold rounded-xl border border-rose-200 transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  Trigger Tamper
+                </button>
+                <button
+                  onClick={() => handleResolveAlerts(selectedPole.pole_id)}
+                  className="py-2.5 px-3 bg-gray-50 hover:bg-gray-100 text-gray-800 text-[11px] font-bold rounded-xl border border-gray-200 transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
+                  Restore Hardware
+                </button>
+              </div>
+            </div>
+
           </div>
-        </div>
+        )}
       </div>
 
-      {/* ================= BOTTOM: ISA-18.2 ALARM & INCIDENT CENTER ================= */}
-      <section id="alarm-section" className={`electra-card ${highlightedSection === 'alarm-section' ? 'section-focused' : ''}`} style={{ padding: '1.4rem' }}>
-        
-        {/* Header & Filter Controls */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <AlertTriangle size={20} color="var(--neon-rose)" />
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>
-                ISA-18.2 Alarm & Security Incident Center
-              </h2>
-            </div>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-              Stateful hysteresis alarm debouncing, physical tamper triggers and frequency counters
-            </p>
-          </div>
-
-          {/* Search & Filter Pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            
-            {/* Search Input */}
-            <div style={{ position: 'relative', minWidth: '170px' }}>
-              <Search size={13} color="var(--text-muted)" style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                type="text"
-                placeholder="Search alerts..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  background: '#0e0b1a',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-full)',
-                  padding: '0.4rem 0.65rem 0.4rem 2rem',
-                  color: '#fff',
-                  fontSize: '0.75rem',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-
-            {/* Filter Pills */}
-            <div style={{ display: 'flex', gap: '0.25rem', background: '#0e0b1a', padding: '0.25rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-subtle)' }}>
-              {[
-                { id: 'ALL', label: `All (${alerts.length})` },
-                { id: 'ACTIVE', label: `Active (${activeAlertsCount})`, color: 'var(--neon-rose)' },
-                { id: 'CRITICAL', label: `Critical`, color: 'var(--neon-rose)' },
-                { id: 'CLEARED', label: `Resolved (${resolvedAlertsCount})`, color: 'var(--neon-emerald)' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setAlertFilter(tab.id)}
-                  style={{
-                    background: alertFilter === tab.id ? 'linear-gradient(135deg, #a855f7, #ec4899)' : 'transparent',
-                    color: alertFilter === tab.id ? '#fff' : (tab.color || 'var(--text-muted)'),
-                    border: 'none',
-                    padding: '0.3rem 0.75rem',
-                    borderRadius: 'var(--radius-full)',
-                    fontSize: '0.725rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Clear All Alarms Bulk Action */}
-            {activeAlertsCount > 0 && (
+      {/* 4. ADD NEW CUSTOM POLE MODAL */}
+      {isAddingPole && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                  <PlusCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Add Custom Smart Pole</h3>
+                  <p className="text-[11px] text-gray-500 font-medium">Deploy a new IoT pole node with custom GPS position</p>
+                </div>
+              </div>
               <button
-                onClick={handleResolveAllAlarms}
-                className="btn-resolve-pill"
-                style={{ fontSize: '0.725rem', padding: '0.4rem 0.85rem' }}
+                onClick={() => setIsAddingPole(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
               >
-                <CheckCheck size={14} /> Clear All ({activeAlertsCount})
+                <X className="w-4 h-4" />
               </button>
-            )}
+            </div>
+
+            <form onSubmit={handleCreateNewPole} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-600 block mb-1 font-semibold">Pole ID *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newPoleForm.pole_id}
+                    onChange={(e) => setNewPoleForm((p) => ({ ...p, pole_id: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. POLE-016"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 font-mono text-gray-900 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600 block mb-1 font-semibold">Pole Name</label>
+                  <input
+                    type="text"
+                    value={newPoleForm.name}
+                    onChange={(e) => setNewPoleForm((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="e.g. Lake Promenade North"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-gray-900 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-600 block mb-1 font-semibold">Cluster Assignment</label>
+                  <select
+                    value={newPoleForm.cluster_id}
+                    onChange={(e) => {
+                      const cid = e.target.value;
+                      const gw = cid === 'CLUSTER-A' ? 'GATEWAY-01' : cid === 'CLUSTER-B' ? 'GATEWAY-02' : 'GATEWAY-03';
+                      setNewPoleForm((p) => ({ ...p, cluster_id: cid, gateway_id: gw }));
+                    }}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-gray-900 focus:outline-none focus:border-amber-500 font-medium"
+                  >
+                    <option value="CLUSTER-A">Cluster A (Metro Rail)</option>
+                    <option value="CLUSTER-B">Cluster B (Sonargaon Janapath)</option>
+                    <option value="CLUSTER-C">Cluster C (Diabari Lake)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-gray-600 block mb-1 font-semibold">Gateway Hub</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={newPoleForm.gateway_id}
+                    className="w-full bg-gray-100 border border-gray-200 rounded-xl px-3 py-2 text-gray-500 font-mono font-medium"
+                  />
+                </div>
+              </div>
+
+              {/* GPS Coordinates & Map Placement Helper */}
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-gray-800 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-amber-500" /> GPS Placement Coordinates
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pushToast('Map Placement Mode', '📍 Click anywhere on the map to set the pole coordinates', 'info');
+                    }}
+                    className="text-[10px] text-amber-600 hover:text-amber-700 flex items-center gap-1 font-bold"
+                  >
+                    <Target className="w-3 h-3" />
+                    <span>Click on Map to Place</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-0.5 font-medium">Latitude</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={newPoleForm.latitude}
+                      onChange={(e) => setNewPoleForm((p) => ({ ...p, latitude: parseFloat(e.target.value) || 0 }))}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono text-gray-900 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-0.5 font-medium">Longitude</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={newPoleForm.longitude}
+                      onChange={(e) => setNewPoleForm((p) => ({ ...p, longitude: parseFloat(e.target.value) || 0 }))}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono text-gray-900 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-600 block mb-1 font-semibold">Zone Description</label>
+                  <input
+                    type="text"
+                    value={newPoleForm.zone}
+                    onChange={(e) => setNewPoleForm((p) => ({ ...p, zone: e.target.value }))}
+                    placeholder="e.g. Diabari Lake Avenue"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-gray-900 focus:outline-none focus:border-amber-500 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600 block mb-1 font-semibold">Battery Capacity (Ah)</label>
+                  <input
+                    type="number"
+                    value={newPoleForm.battery_capacity_ah}
+                    onChange={(e) => setNewPoleForm((p) => ({ ...p, battery_capacity_ah: parseInt(e.target.value, 10) || 120 }))}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 font-mono text-gray-900 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddingPole(false)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-white font-bold rounded-xl shadow-sm flex items-center gap-1.5 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Deploy Pole</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
+      )}
 
-        {/* Incident Table */}
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
-                <th style={{ width: '120px', padding: '0.75rem', fontWeight: 600 }}>Status</th>
-                <th style={{ width: '100px', padding: '0.75rem', fontWeight: 600 }}>Severity</th>
-                <th style={{ width: '140px', padding: '0.75rem', fontWeight: 600 }}>Target Asset</th>
-                <th style={{ padding: '0.75rem', fontWeight: 600 }}>Diagnostic Details</th>
-                <th style={{ width: '90px', padding: '0.75rem', fontWeight: 600 }}>Frequency</th>
-                <th style={{ width: '110px', padding: '0.75rem', fontWeight: 600 }}>Last Active</th>
-                <th style={{ width: '100px', padding: '0.75rem', fontWeight: 600, textAlign: 'right' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAlerts.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                    No alerts in this category. All hardware sensors nominal.
-                  </td>
-                </tr>
-              ) : (
-                filteredAlerts.map((alert, idx) => {
-                  const isCrit = alert.severity === 'CRITICAL';
-                  const isWarn = alert.severity === 'WARNING';
-                  const isActive = alert.status === 'ACTIVE' || (!alert.status && isCrit);
+      {/* 5. TOAST NOTIFICATIONS STACK — Clean Light Theme Matching System, Floats cleanly beside Drawer */}
+      <div
+        className={`fixed bottom-6 z-40 flex flex-col-reverse gap-2.5 max-w-sm pointer-events-none transition-all duration-300 ease-out ${
+          drawerOpen && selectedPole ? 'right-[410px]' : 'right-6'
+        }`}
+      >
+        {toastStack.map((toast) => {
+          const isDanger = toast.type === 'danger';
+          const isSuccess = toast.type === 'success';
 
-                  return (
-                    <tr
-                      key={alert.id || idx}
-                      style={{
-                        height: '52px',
-                        maxHeight: '52px',
-                        borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
-                        background: isActive ? 'rgba(244, 63, 94, 0.04)' : 'transparent',
-                      }}
-                    >
-                      {/* Status */}
-                      <td style={{ width: '120px', height: '52px', padding: '0.45rem 0.75rem', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.35rem',
-                            padding: '0.2rem 0.55rem',
-                            borderRadius: 'var(--radius-full)',
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            background: isActive ? 'rgba(244, 63, 94, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                            color: isActive ? 'var(--neon-rose)' : 'var(--neon-emerald)',
-                            border: `1px solid ${isActive ? 'rgba(244, 63, 94, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-                          }}
-                        >
-                          <span className={`pulse-dot ${isActive ? 'danger' : 'online'}`} style={{ width: '6px', height: '6px' }} />
-                          {isActive ? 'ACTIVE' : 'RESOLVED'}
-                        </span>
-                      </td>
+          return (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto p-3.5 rounded-2xl bg-white/95 backdrop-blur-md border border-gray-200 shadow-xl flex items-start justify-between gap-3 animate-in slide-in-from-bottom-3 duration-200 ${
+                isDanger
+                  ? 'border-l-4 border-l-rose-500 shadow-rose-500/10'
+                  : isSuccess
+                  ? 'border-l-4 border-l-emerald-500 shadow-emerald-500/10'
+                  : 'border-l-4 border-l-amber-500 shadow-amber-500/10'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                <div
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 border ${
+                    isDanger
+                      ? 'bg-rose-50 text-rose-600 border-rose-200'
+                      : isSuccess
+                      ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                      : 'bg-amber-50 text-amber-600 border-amber-200'
+                  }`}
+                >
+                  {isDanger ? (
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  ) : isSuccess ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Bell className="w-3.5 h-3.5" />
+                  )}
+                </div>
 
-                      {/* Severity */}
-                      <td style={{ width: '100px', height: '52px', padding: '0.45rem 0.75rem', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            padding: '0.15rem 0.5rem',
-                            borderRadius: '4px',
-                            fontSize: '0.7rem',
-                            fontWeight: 700,
-                            background: isCrit
-                              ? 'rgba(244, 63, 94, 0.2)'
-                              : isWarn
-                              ? 'rgba(251, 191, 36, 0.2)'
-                              : 'rgba(6, 182, 212, 0.2)',
-                            color: isCrit
-                              ? 'var(--neon-rose)'
-                              : isWarn
-                              ? 'var(--neon-gold)'
-                              : 'var(--neon-cyan)',
-                          }}
-                        >
-                          {alert.severity}
-                        </span>
-                      </td>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xs text-gray-900">{toast.title}</span>
+                    <span className="text-[10px] text-gray-400 font-mono">{toast.time}</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{toast.msg}</p>
+                </div>
+              </div>
 
-                      {/* Pole */}
-                      <td style={{ width: '140px', height: '52px', padding: '0.45rem 0.75rem', verticalAlign: 'middle', whiteSpace: 'nowrap', fontWeight: 800, color: '#fff' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                          <span>{alert.pole_id}</span>
-                          {alert.zone && (
-                            <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)', fontWeight: 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {alert.zone}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Diagnostic Details */}
-                      <td style={{ height: '52px', padding: '0.45rem 0.75rem', verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
-                        <div
-                          style={{
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            maxWidth: '100%',
-                            fontSize: '0.775rem',
-                          }}
-                          title={alert.message}
-                        >
-                          {alert.message}
-                        </div>
-                      </td>
-
-                      {/* Frequency Badge */}
-                      <td style={{ width: '90px', height: '52px', padding: '0.45rem 0.75rem', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                        <span
-                          style={{
-                            padding: '0.15rem 0.55rem',
-                            borderRadius: 'var(--radius-full)',
-                            background: '#251f44',
-                            fontSize: '0.725rem',
-                            fontWeight: 800,
-                            fontFamily: 'var(--font-mono)',
-                            color: alert.occurrence_count > 1 ? 'var(--neon-magenta)' : 'var(--text-muted)',
-                          }}
-                        >
-                          {alert.occurrence_count || 1}x
-                        </span>
-                      </td>
-
-                      {/* Timestamp */}
-                      <td style={{ width: '110px', height: '52px', padding: '0.45rem 0.75rem', verticalAlign: 'middle', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: '0.725rem', fontFamily: 'var(--font-mono)' }}>
-                        {formatLocalTime(alert.last_seen_at || alert.created_at)}
-                      </td>
-
-                      {/* Action */}
-                      <td style={{ width: '100px', height: '52px', padding: '0.45rem 0.75rem', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: '30px' }}>
-                          {isActive ? (
-                            <button
-                              onClick={() => resolveSingleAlert(alert)}
-                              className="btn-resolve-pill"
-                              style={{ padding: '0.25rem 0.65rem', fontSize: '0.7rem' }}
-                            >
-                              Resolve
-                            </button>
-                          ) : (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', paddingRight: '0.5rem' }}>--</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              <button
+                onClick={() => dismissToast(toast.id)}
+                className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1 rounded-lg transition-colors shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
