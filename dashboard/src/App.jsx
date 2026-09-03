@@ -34,6 +34,7 @@ import {
   Layers,
   ChevronRight,
   Compass,
+  Globe,
   Plus,
   Minus,
   Crosshair,
@@ -178,6 +179,7 @@ const MAP_STYLES = {
           `https://d.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
         ],
         tileSize: 256,
+        maxzoom: 19,
         attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
       },
     },
@@ -187,32 +189,7 @@ const MAP_STYLES = {
         type: 'raster',
         source: 'carto-positron',
         minzoom: 0,
-        maxzoom: 20,
-      },
-    ],
-  },
-  dark: {
-    version: 8,
-    sources: {
-      'carto-dark': {
-        type: 'raster',
-        tiles: [
-          `https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
-          `https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
-          `https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
-          `https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
-        ],
-        tileSize: 256,
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-      },
-    },
-    layers: [
-      {
-        id: 'carto-dark-layer',
-        type: 'raster',
-        source: 'carto-dark',
-        minzoom: 0,
-        maxzoom: 20,
+        maxzoom: 22,
       },
     ],
   },
@@ -228,6 +205,7 @@ const MAP_STYLES = {
           `https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`,
         ],
         tileSize: 256,
+        maxzoom: 19,
         attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
       },
     },
@@ -237,29 +215,33 @@ const MAP_STYLES = {
         type: 'raster',
         source: 'carto-voyager',
         minzoom: 0,
-        maxzoom: 20,
+        maxzoom: 22,
       },
     ],
   },
-  satellite: {
+  google_earth: {
     version: 8,
     sources: {
-      'esri-sat': {
+      'google-earth': {
         type: 'raster',
         tiles: [
-          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+          'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+          'https://mt2.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+          'https://mt3.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
         ],
         tileSize: 256,
-        attribution: '&copy; Esri World Imagery',
+        maxzoom: 20,
+        attribution: '&copy; Google Earth',
       },
     },
     layers: [
       {
-        id: 'esri-sat-layer',
+        id: 'google-earth-layer',
         type: 'raster',
-        source: 'esri-sat',
+        source: 'google-earth',
         minzoom: 0,
-        maxzoom: 19,
+        maxzoom: 22,
       },
     ],
   },
@@ -288,6 +270,7 @@ export default function App() {
   // State: Navigation & Modals
   const [navTab, setNavTab] = useState('MAP'); // 'MAP' | 'POLES' | 'ALERTS' | 'ANALYTICS'
   const [mapStyleKey, setMapStyleKey] = useState('positron');
+  const [is3DMode, setIs3DMode] = useState(true);
   const [clusterFilter, setClusterFilter] = useState('ALL'); // 'ALL' | 'CLUSTER-A' | 'CLUSTER-B' | 'CLUSTER-C' | 'TAMPER'
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCoords, setCopiedCoords] = useState(false);
@@ -1245,6 +1228,7 @@ export default function App() {
                 bearing: -15,
                 pitch: 60,
               }}
+              maxZoom={20}
               maxPitch={85}
               dragRotate={true}
               pitchWithRotate={true}
@@ -1257,48 +1241,73 @@ export default function App() {
             >
               <NavigationControl position="bottom-left" showCompass={true} visualizePitch={true} />
 
-              {/* Floating Basemap Style & 3D Perspective Picker (Clean White Glass) */}
-              <div className="absolute bottom-6 left-16 z-30 flex items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-xl">
+              {/* Floating Basemap Style & 3D Perspective Picker (Minimal with Refined Color Accents) */}
+              <div className="absolute bottom-6 left-16 z-30 flex items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-lg">
                 {/* 3D Perspective Quick Tilt Button */}
                 <button
                   onClick={() => {
                     if (!mapRef.current) return;
-                    const currentPitch = mapRef.current.getPitch();
-                    const nextPitch = currentPitch > 25 ? 0 : 60;
+                    const next3D = !is3DMode;
+                    setIs3DMode(next3D);
                     mapRef.current.easeTo({
-                      pitch: nextPitch,
-                      bearing: nextPitch > 25 ? -15 : 0,
+                      pitch: next3D ? 60 : 0,
+                      bearing: next3D ? -15 : 0,
                       duration: 800,
                     });
                   }}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200 transition-all flex items-center gap-1.5 shadow-xs"
+                  className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border ${
+                    is3DMode
+                      ? 'bg-amber-50 text-amber-900 border-amber-200 shadow-2xs font-semibold'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
+                  }`}
                   title="Toggle 2D Top-Down / 3D Angled Perspective"
                 >
-                  <Compass className="w-3.5 h-3.5 text-amber-500" />
+                  <Compass className={`w-3.5 h-3.5 ${is3DMode ? 'text-amber-600' : 'text-amber-500'}`} />
                   <span>3D Angle</span>
                 </button>
 
                 <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
 
                 {[
-                  { id: 'positron', label: 'Positron Light', icon: '☀️' },
-                  { id: 'dark', label: 'Dark Matter', icon: '🌙' },
-                  { id: 'voyager', label: 'Voyager Streets', icon: '🗺️' },
-                  { id: 'satellite', label: 'Satellite', icon: '🛰️' },
-                ].map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setMapStyleKey(s.id)}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 ${
-                      mapStyleKey === s.id
-                        ? 'bg-amber-500 text-white shadow-xs font-bold'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                    }`}
-                  >
-                    <span>{s.icon}</span>
-                    <span>{s.label}</span>
-                  </button>
-                ))}
+                  {
+                    id: 'positron',
+                    label: 'Positron Light',
+                    Icon: Sun,
+                    iconColor: 'text-amber-500',
+                    activeStyle: 'bg-amber-50 text-amber-900 border-amber-200 shadow-2xs font-semibold',
+                  },
+                  {
+                    id: 'voyager',
+                    label: 'Voyager Streets',
+                    Icon: Layers,
+                    iconColor: 'text-blue-500',
+                    activeStyle: 'bg-blue-50 text-blue-900 border-blue-200 shadow-2xs font-semibold',
+                  },
+                  {
+                    id: 'google_earth',
+                    label: 'Google Earth View',
+                    Icon: Globe,
+                    iconColor: 'text-emerald-500',
+                    activeStyle: 'bg-emerald-50 text-emerald-900 border-emerald-200 shadow-2xs font-semibold',
+                  },
+                ].map((s) => {
+                  const isActive = mapStyleKey === s.id;
+                  const ButtonIcon = s.Icon;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setMapStyleKey(s.id)}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border ${
+                        isActive
+                          ? s.activeStyle
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
+                      }`}
+                    >
+                      <ButtonIcon className={`w-3.5 h-3.5 ${s.iconColor}`} />
+                      <span>{s.label}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Dynamic Mesh Network Lines connecting each neighbor Street Lamp Pole to its Cluster Master Pole */}
