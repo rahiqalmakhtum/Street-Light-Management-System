@@ -18,6 +18,7 @@ import {
   pool 
 } from './db.js';
 import { initMQTT, sendControlCommand, setBroadcastCallback, closeMQTT, clearActiveAlarmStates } from './mqtt.js';
+import { startEmbeddedSimulator, stopEmbeddedSimulator } from './simulatorService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -118,6 +119,10 @@ server.listen(port, '0.0.0.0', () => {
   try {
     await initDB();
     initMQTT();
+
+    if (process.env.ENABLE_SIMULATOR === 'true' || process.env.ENABLE_SIMULATOR === '1') {
+      startEmbeddedSimulator();
+    }
   } catch (err) {
     console.error('Initialization error:', err.message);
   }
@@ -545,7 +550,10 @@ async function gracefulShutdown(signal) {
   clearInterval(pingInterval);
 
   try {
-    // 1. Close MQTT and flush remaining write buffer
+    // 1. Close simulator if running
+    stopEmbeddedSimulator();
+
+    // 2. Close MQTT and flush remaining write buffer
     await closeMQTT();
     console.log('✅ [Shutdown] MQTT closed and buffer flushed.');
 

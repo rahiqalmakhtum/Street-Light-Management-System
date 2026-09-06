@@ -74,7 +74,7 @@ import {
 
 // Cluster Master Poles (Sensor Gateway & Telemetry Concentrator Poles - Not Street Lamps)
 // Connected to all neighbor street lamp poles in their respective cluster and sends aggregated data to the server
-const GATEWAYS = [
+const INITIAL_GATEWAYS = [
   {
     id: 'GATEWAY-01',
     pole_id: 'CLUSTER-POLE-A',
@@ -266,17 +266,32 @@ export function formatRuntime(mins) {
   return hours > 0 ? `${hours}h ${m}m` : `${m}m`;
 }
 
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
 export default function App() {
   // State: Navigation & Modals
   const [navTab, setNavTab] = useState('MAP'); // 'MAP' | 'POLES' | 'ALERTS' | 'ANALYTICS'
   const [mapStyleKey, setMapStyleKey] = useState('positron');
   const [is3DMode, setIs3DMode] = useState(true);
+  const [showMeshLines, setShowMeshLines] = useState(false);
   const [clusterFilter, setClusterFilter] = useState('ALL'); // 'ALL' | 'CLUSTER-A' | 'CLUSTER-B' | 'CLUSTER-C' | 'TAMPER'
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCoords, setCopiedCoords] = useState(false);
 
   // State: Core IoT Data
   const [poles, setPoles] = useState([]);
+  const [gateways, setGateways] = useState(() => {
+    try {
+      const saved = localStorage.getItem('streetlight_gateways_pos');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn('Could not parse saved gateway positions', e);
+    }
+    return INITIAL_GATEWAYS;
+  });
   const [selectedPoleId, setSelectedPoleId] = useState('POLE-001');
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [telemetryHistory, setTelemetryHistory] = useState([]);
@@ -323,7 +338,7 @@ export default function App() {
     const fromPoles = poles.find((p) => p.pole_id === selectedPoleId);
     if (fromPoles) return fromPoles;
 
-    const fromGateways = GATEWAYS.find((g) => g.id === selectedPoleId || g.pole_id === selectedPoleId);
+    const fromGateways = gateways.find((g) => g.id === selectedPoleId || g.pole_id === selectedPoleId);
     if (fromGateways) {
       return {
         ...fromGateways,
@@ -336,7 +351,7 @@ export default function App() {
     }
 
     return poles[0] || null;
-  }, [poles, selectedPoleId]);
+  }, [poles, gateways, selectedPoleId]);
 
   // Sync manual coordinate inputs whenever selected pole changes
   useEffect(() => {
@@ -387,8 +402,8 @@ export default function App() {
   const fetchData = async () => {
     try {
       const [polesRes, alertsRes] = await Promise.all([
-        fetch('/api/poles').then((r) => r.json()),
-        fetch('/api/alerts').then((r) => r.json()),
+        fetch(`${API_BASE}/api/poles`).then((r) => r.json()),
+        fetch(`${API_BASE}/api/alerts`).then((r) => r.json()),
       ]);
 
       if (polesRes.success && polesRes.data) {
@@ -412,7 +427,7 @@ export default function App() {
   // 2. Fetch rolling history for a selected pole
   const fetchPoleHistory = async (poleId) => {
     try {
-      const res = await fetch(`/api/poles/${poleId}/history?limit=30`).then((r) => r.json());
+      const res = await fetch(`${API_BASE}/api/poles/${poleId}/history?limit=30`).then((r) => r.json());
       if (res.success && res.data) {
         const formatted = res.data.map((item) => {
           const v = Number(item.voltage) || 230;
@@ -451,12 +466,17 @@ export default function App() {
   // Smoothly focus map camera on pole
   const focusOnPole = useCallback((pole) => {
     if (!pole) return;
-    setSelectedPoleId(pole.pole_id);
+    const pId = pole.pole_id || pole.id;
+    setSelectedPoleId(pId);
     setDrawerOpen(true);
+    setNavTab('MAP');
 
-    if (mapRef.current) {
+    const lat = pole.latitude ?? pole.lat;
+    const lng = pole.longitude ?? pole.lng;
+
+    if (mapRef.current && lat !== undefined && lng !== undefined) {
       mapRef.current.flyTo({
-        center: [pole.longitude, pole.latitude],
+        center: [Number(lng), Number(lat)],
         zoom: 16.2,
         pitch: 60,
         bearing: -15,
@@ -466,7 +486,7 @@ export default function App() {
     }
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'SELECT_POLE', pole_id: pole.pole_id }));
+      wsRef.current.send(JSON.stringify({ type: 'SELECT_POLE', pole_id: pId }));
     }
   }, []);
 
@@ -477,9 +497,23 @@ export default function App() {
 
     fetchData();
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.hostname || 'localhost';
-    const wsUrl = `${protocol}//${wsHost}:4000/ws`;
+    let wsUrl = import.meta.env.VITE_WS_URL;
+    if (!wsUrl) {
+      if (API_BASE) {
+        try {
+          const parsed = new URL(API_BASE);
+          const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${wsProto}//${parsed.host}/ws`;
+        } catch (e) {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${protocol}//${window.location.hostname}:4000/ws`;
+        }
+      } else {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.hostname || 'localhost';
+        wsUrl = `${protocol}//${wsHost}:4000/ws`;
+      }
+    }
 
     function connectWs() {
       if (!isMounted) return;
@@ -634,7 +668,7 @@ export default function App() {
     setDimmerValues((prev) => ({ ...prev, [poleId]: brightness }));
 
     try {
-      await fetch(`/api/poles/${poleId}/control`, {
+      await fetch(`${API_BASE}/api/poles/${poleId}/control`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state: nextState, brightness }),
@@ -671,7 +705,7 @@ export default function App() {
   // Tamper simulation
   const handleTriggerTamper = async (poleId) => {
     try {
-      await fetch(`/api/poles/${poleId}/tamper`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/poles/${poleId}/tamper`, { method: 'POST' });
     } catch (err) {
       console.error('Failed to trigger tamper:', err);
     }
@@ -680,7 +714,7 @@ export default function App() {
   // Restore hardware
   const handleResolveAlerts = async (poleId) => {
     try {
-      await fetch(`/api/poles/${poleId}/resolve-alerts`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/poles/${poleId}/resolve-alerts`, { method: 'POST' });
       pushToast('Hardware Restored', `✅ ${poleId} nominal 230V restored and alarms cleared`, 'success', poleId);
     } catch (err) {
       console.error('Failed to resolve alerts:', err);
@@ -708,7 +742,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`/api/poles/${poleId}/position`, {
+      const res = await fetch(`${API_BASE}/api/poles/${poleId}/position`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ latitude: lat, longitude: lng }),
@@ -725,12 +759,52 @@ export default function App() {
     }
   };
 
+  // Handle cluster master gateway marker drag-end event on the map
+  const handleGatewayDragEnd = (gwId, lngLat) => {
+    const lat = Number(lngLat.lat.toFixed(6));
+    const lng = Number(lngLat.lng.toFixed(6));
+
+    setGateways((prev) => {
+      const updated = prev.map((g) => (g.id === gwId || g.pole_id === gwId ? { ...g, lat, lng } : g));
+      try {
+        localStorage.setItem('streetlight_gateways_pos', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to save gateway position', e);
+      }
+      return updated;
+    });
+
+    if (selectedPoleId === gwId || selectedPole?.id === gwId || selectedPole?.pole_id === gwId) {
+      setCoordsInput({ lat: lat.toFixed(6), lng: lng.toFixed(6) });
+    }
+
+    pushToast('Cluster Relocated', `📍 Cluster Hub ${gwId} repositioned to (${lat}, ${lng})`, 'success', gwId);
+  };
+
   // Handle saving manual coordinate inputs
   const handleSaveManualCoords = async () => {
     const lat = parseFloat(coordsInput.lat);
     const lng = parseFloat(coordsInput.lng);
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       pushToast('Invalid Coordinates', 'Please enter valid numbers for latitude (-90..90) and longitude (-180..180)', 'danger');
+      return;
+    }
+
+    const isGw = gateways.some((g) => g.id === selectedPoleId || g.pole_id === selectedPoleId);
+    if (isGw) {
+      setGateways((prev) => {
+        const updated = prev.map((g) => (g.id === selectedPoleId || g.pole_id === selectedPoleId ? { ...g, lat, lng } : g));
+        try {
+          localStorage.setItem('streetlight_gateways_pos', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+      setIsEditingCoords(false);
+      setIsPickingCoordsOnMap(false);
+      pushToast('Coordinates Saved', `📍 ${selectedPoleId} coordinates saved`, 'success', selectedPoleId);
+      if (mapRef.current) {
+        mapRef.current.flyTo({ center: [lng, lat], zoom: 16.5, duration: 800 });
+      }
       return;
     }
 
@@ -741,7 +815,7 @@ export default function App() {
     setIsPickingCoordsOnMap(false);
 
     try {
-      const res = await fetch(`/api/poles/${selectedPoleId}/position`, {
+      const res = await fetch(`${API_BASE}/api/poles/${selectedPoleId}/position`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ latitude: lat, longitude: lng }),
@@ -765,9 +839,16 @@ export default function App() {
 
     if (isPickingCoordsOnMap && selectedPoleId) {
       setCoordsInput({ lat: lat.toFixed(6), lng: lng.toFixed(6) });
-      setPoles((prev) =>
-        prev.map((p) => (p.pole_id === selectedPoleId ? { ...p, latitude: lat, longitude: lng } : p))
-      );
+      const isGw = gateways.some((g) => g.id === selectedPoleId || g.pole_id === selectedPoleId);
+      if (isGw) {
+        setGateways((prev) =>
+          prev.map((g) => (g.id === selectedPoleId || g.pole_id === selectedPoleId ? { ...g, lat, lng } : g))
+        );
+      } else {
+        setPoles((prev) =>
+          prev.map((p) => (p.pole_id === selectedPoleId ? { ...p, latitude: lat, longitude: lng } : p))
+        );
+      }
       pushToast('Location Picked', `📍 Selected (${lat}, ${lng}). Click "Save Coordinates" to apply.`, 'info');
       setIsPickingCoordsOnMap(false);
     } else if (isAddingPole) {
@@ -784,7 +865,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch('/api/poles', {
+      const res = await fetch(`${API_BASE}/api/poles`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newPoleForm),
@@ -810,7 +891,7 @@ export default function App() {
   const handleDeletePole = async (poleId) => {
     if (!window.confirm(`Are you sure you want to remove pole ${poleId} from the GIS map and database?`)) return;
     try {
-      const res = await fetch(`/api/poles/${poleId}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/api/poles/${poleId}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setPoles((prev) => prev.filter((p) => p.pole_id !== poleId));
@@ -860,7 +941,7 @@ export default function App() {
   // Dynamic Mesh Lines connecting each Street Lamp Pole to its Cluster Master Pole
   const meshLinesGeoJson = useMemo(() => {
     const features = [];
-    GATEWAYS.forEach((gw) => {
+    gateways.forEach((gw) => {
       const clusterColor = CLUSTER_META[gw.cluster_id]?.color || '#f59e0b';
       const clusterPoles = poles.filter((p) => p.cluster_id === gw.cluster_id);
 
@@ -888,7 +969,7 @@ export default function App() {
       type: 'FeatureCollection',
       features,
     };
-  }, [poles]);
+  }, [poles, gateways]);
 
   // Filtered poles list (used for table view)
   const filteredPoles = useMemo(() => {
@@ -1184,10 +1265,17 @@ export default function App() {
 
             {/* Drawer Toggle */}
             <button
-              onClick={() => setDrawerOpen((o) => !o)}
-              title={drawerOpen ? 'Hide Detail Drawer' : 'Show Detail Drawer'}
+              onClick={() => {
+                if (navTab !== 'MAP') {
+                  setNavTab('MAP');
+                  setDrawerOpen(true);
+                } else {
+                  setDrawerOpen((o) => !o);
+                }
+              }}
+              title={navTab === 'MAP' && drawerOpen ? 'Hide Detail Drawer' : 'Show Detail Drawer'}
               className={`p-1.5 rounded-xl border transition-all ${
-                drawerOpen ? 'bg-gray-100 text-gray-800 border-gray-300' : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200'
+                navTab === 'MAP' && drawerOpen ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200'
               }`}
             >
               <SlidersHorizontal className="w-4 h-4" />
@@ -1268,6 +1356,22 @@ export default function App() {
 
                 <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
 
+                {/* Mesh Lines Toggle */}
+                <button
+                  onClick={() => setShowMeshLines((prev) => !prev)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border ${
+                    showMeshLines
+                      ? 'bg-purple-50 text-purple-900 border-purple-200 shadow-2xs font-semibold'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
+                  }`}
+                  title="Toggle Mesh Network Connection Lines"
+                >
+                  <Network className={`w-3.5 h-3.5 ${showMeshLines ? 'text-purple-600' : 'text-purple-400'}`} />
+                  <span>Mesh Lines</span>
+                </button>
+
+                <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
+
                 {[
                   {
                     id: 'positron',
@@ -1311,43 +1415,48 @@ export default function App() {
               </div>
 
               {/* Dynamic Mesh Network Lines connecting each neighbor Street Lamp Pole to its Cluster Master Pole */}
-              <Source id="cluster-mesh-network" type="geojson" data={meshLinesGeoJson}>
-                <Layer
-                  id="mesh-lines-glow"
-                  type="line"
-                  paint={{
-                    'line-color': '#a855f7',
-                    'line-width': 5,
-                    'line-opacity': 0.4,
-                  }}
-                />
-                <Layer
-                  id="mesh-lines-layer"
-                  type="line"
-                  paint={{
-                    'line-color': '#7c3aed',
-                    'line-width': 2.5,
-                    'line-opacity': 0.9,
-                    'line-dasharray': [2, 2],
-                  }}
-                />
-              </Source>
+              {showMeshLines && (
+                <Source id="cluster-mesh-network" type="geojson" data={meshLinesGeoJson}>
+                  <Layer
+                    id="mesh-lines-glow"
+                    type="line"
+                    paint={{
+                      'line-color': '#a855f7',
+                      'line-width': 5,
+                      'line-opacity': 0.4,
+                    }}
+                  />
+                  <Layer
+                    id="mesh-lines-layer"
+                    type="line"
+                    paint={{
+                      'line-color': '#7c3aed',
+                      'line-width': 2.5,
+                      'line-opacity': 0.9,
+                      'line-dasharray': [2, 2],
+                    }}
+                  />
+                </Source>
+              )}
 
               {/* Cluster Master Poles (Sensor Hub & Gateway Poles - Not Street Lamps) */}
-              {GATEWAYS.map((gw) => {
+              {gateways.map((gw) => {
                 const isGatewayClusterSelected = clusterFilter === 'ALL' || gw.cluster_id === clusterFilter;
                 const isSelected = selectedPoleId === gw.id || selectedPoleId === gw.pole_id;
                 const isHovered = hoveredPole?.id === gw.id || hoveredPole?.pole_id === gw.pole_id;
+                const canDrag = isRepositionMode || (isEditingCoords && isSelected);
                 const gwDepthZ = Math.round((23.89 - Number(gw.lat)) * 10000);
                 const gwZIndex = isSelected ? 500 : (isHovered ? 400 : gwDepthZ);
 
                 return (
                   <Marker
                     key={gw.id}
-                    longitude={gw.lng}
-                    latitude={gw.lat}
+                    longitude={Number(gw.lng)}
+                    latitude={Number(gw.lat)}
                     anchor="bottom"
+                    draggable={canDrag}
                     style={{ zIndex: gwZIndex }}
+                    onDragEnd={(e) => handleGatewayDragEnd(gw.id, e.lngLat)}
                     onClick={(e) => {
                       e.originalEvent.stopPropagation();
                       focusOnPole(gw);
@@ -1357,9 +1466,16 @@ export default function App() {
                       onMouseEnter={() => setHoveredPole(gw)}
                       onMouseLeave={() => setHoveredPole(null)}
                       className={`relative flex flex-col items-center group cursor-pointer overflow-visible transition-all duration-300 ${
+                        canDrag ? 'cursor-grab active:cursor-grabbing' : ''
+                      } ${
                         isGatewayClusterSelected ? 'opacity-100 scale-100' : 'opacity-80 scale-95'
                       } ${isSelected ? 'scale-125 -translate-y-1' : 'hover:scale-120 hover:-translate-y-1'}`}
                     >
+                      {/* Drag Halo ring when in repositioning mode */}
+                      {canDrag && (
+                        <div className="absolute -top-1 w-11 h-11 rounded-full border-2 border-dashed border-purple-500 animate-spin-slow pointer-events-none" />
+                      )}
+
                       {/* Clean Purple Teardrop Cluster Master Pole Pin */}
                       <div className="relative w-9 h-11 filter drop-shadow-md overflow-visible">
                         <svg width="36" height="44" viewBox="0 0 36 44" fill="none" xmlns="http://www.w3.org/2000/svg" className="overflow-visible">
@@ -1642,7 +1758,7 @@ export default function App() {
                   <p className="text-xs text-gray-500 font-medium">Stateful telemetry threshold & physical tamper events</p>
                 </div>
                 <button
-                  onClick={() => fetch('/api/alerts/resolve-all', { method: 'POST' }).then(() => fetchData())}
+                  onClick={() => fetch(`${API_BASE}/api/alerts/resolve-all`, { method: 'POST' }).then(() => fetchData())}
                   className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-800 rounded-xl border border-gray-200 transition-all flex items-center gap-1.5 shadow-xs"
                 >
                   <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -1720,7 +1836,7 @@ export default function App() {
 
               {/* Cluster Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {GATEWAYS.map((gw) => {
+                {gateways.map((gw) => {
                   const clusterPoles = poles.filter((p) => p.cluster_id === gw.cluster_id);
                   const clusterLoad = (
                     clusterPoles.reduce((s, p) => s + Number(p.latest_power_watts || 190), 0) / 1000
@@ -1758,7 +1874,7 @@ export default function App() {
       {/* 3. RIGHT SLIDING DETAIL DRAWER — CLEAN LIGHT CHARGEHUB PANEL */}
       <div
         className={`fixed top-0 right-0 h-full w-[390px] max-w-full bg-white border-l border-gray-200 shadow-2xl flex flex-col z-[99999] transition-transform duration-300 ease-out ${
-          drawerOpen && selectedPole ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+          navTab === 'MAP' && drawerOpen && selectedPole ? 'translate-x-0' : 'translate-x-full pointer-events-none'
         }`}
       >
         {selectedPole && (
@@ -2156,14 +2272,16 @@ export default function App() {
                       <Save className="w-3 h-3" />
                       <span>Save</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePole(selectedPole.pole_id)}
-                      className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-gray-200"
-                      title="Delete Pole"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {selectedPole.type !== 'CLUSTER_MASTER_POLE' && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePole(selectedPole.pole_id)}
+                        className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-gray-200"
+                        title="Delete Pole"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -2431,7 +2549,7 @@ export default function App() {
       {/* 5. TOAST NOTIFICATIONS STACK — Clean Light Theme Matching System, Floats cleanly beside Drawer */}
       <div
         className={`fixed bottom-6 z-40 flex flex-col-reverse gap-2.5 max-w-sm pointer-events-none transition-all duration-300 ease-out ${
-          drawerOpen && selectedPole ? 'right-[410px]' : 'right-6'
+          navTab === 'MAP' && drawerOpen && selectedPole ? 'right-[410px]' : 'right-6'
         }`}
       >
         {toastStack.map((toast) => {

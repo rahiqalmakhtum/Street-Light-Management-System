@@ -36,10 +36,15 @@ const simulatedPoles = {
 };
 
 console.log(`[Simulator] Connecting to HiveMQ broker at ${brokerUrl}...`);
-const client = mqtt.connect(brokerUrl, {
+
+const simMqttOptions = {
   clientId: `hardware-simulator-${Math.random().toString(16).slice(2, 8)}`,
   reconnectPeriod: 3000,
-});
+};
+if (process.env.MQTT_USERNAME) simMqttOptions.username = process.env.MQTT_USERNAME;
+if (process.env.MQTT_PASSWORD) simMqttOptions.password = process.env.MQTT_PASSWORD;
+
+const client = mqtt.connect(brokerUrl, simMqttOptions);
 
 /**
  * Build unified, comprehensive telemetry & battery analytics payload

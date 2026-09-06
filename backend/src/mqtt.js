@@ -100,11 +100,16 @@ async function processAlarmLifecycle(poleId, alertType, isViolating, isRecovered
 export function initMQTT() {
   console.log(`[MQTT] Connecting to HiveMQ broker at ${brokerUrl}...`);
 
-  mqttClient = mqtt.connect(brokerUrl, {
+  const mqttOptions = {
     reconnectPeriod: 3000,
-    connectTimeout: 5000,
+    connectTimeout: 8000,
     clientId: `backend-service-${Math.random().toString(16).slice(2, 8)}`,
-  });
+  };
+
+  if (process.env.MQTT_USERNAME) mqttOptions.username = process.env.MQTT_USERNAME;
+  if (process.env.MQTT_PASSWORD) mqttOptions.password = process.env.MQTT_PASSWORD;
+
+  mqttClient = mqtt.connect(brokerUrl, mqttOptions);
 
   mqttClient.on('connect', () => {
     console.log('✅ [MQTT] Connected to HiveMQ Broker');
