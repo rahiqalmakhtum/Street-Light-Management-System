@@ -59,7 +59,8 @@ import {
   ChevronLeft,
   Wifi,
   BarChart3,
-  User
+  User,
+  Menu
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -271,6 +272,8 @@ const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export default function App() {
   // State: Navigation & Modals
   const [navTab, setNavTab] = useState('MAP'); // 'MAP' | 'POLES' | 'ALERTS' | 'ANALYTICS'
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMapLayersOpen, setMobileMapLayersOpen] = useState(false);
   const [mapStyleKey, setMapStyleKey] = useState('positron');
   const [is3DMode, setIs3DMode] = useState(true);
   const [showMeshLines, setShowMeshLines] = useState(false);
@@ -1000,24 +1003,45 @@ export default function App() {
     : '0.00';
 
   return (
-    <div className="flex h-screen w-screen bg-[#f8fafc] text-gray-900 font-sans overflow-hidden select-none">
-      {/* 1. LEFT EXPANDED NAVIGATION BAR (Clean Light Theme) */}
-      <aside className="w-56 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col justify-between py-4 px-3 z-40 shadow-xs">
-        <div className="flex flex-col gap-5">
+    <div className="flex h-screen w-screen bg-[#f8fafc] text-gray-900 font-sans overflow-hidden select-none relative">
+      {/* MOBILE BACKDROP OVERLAY FOR SIDEBAR */}
+      {mobileMenuOpen && (
+        <div
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs z-[99990] lg:hidden transition-opacity"
+        />
+      )}
+
+      {/* 1. LEFT NAVIGATION BAR (Expanded on Desktop, Slide-over Drawer on Mobile & Tablet) */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-[99995] w-64 bg-white border-r border-gray-200 flex flex-col justify-between py-4 px-3 shadow-2xl lg:shadow-xs lg:static lg:w-56 lg:flex-shrink-0 transition-transform duration-300 ease-in-out ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        <div className="flex flex-col gap-5 overflow-y-auto no-scrollbar">
           {/* Brand Header */}
-          <div className="flex items-center gap-3 px-2 py-1">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-md shadow-amber-500/20">
-              <Zap className="w-5 h-5 text-white fill-white/20" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-sm tracking-tight text-gray-900">ELECTRA</span>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                  GIS
-                </span>
+          <div className="flex items-center justify-between px-2 py-1">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-md shadow-amber-500/20">
+                <Zap className="w-5 h-5 text-white fill-white/20" />
               </div>
-              <p className="text-[11px] text-gray-500 font-medium">Uttara Sector 18 Fleet</p>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-extrabold text-sm tracking-tight text-gray-900">ELECTRA</span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                    GIS
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 font-medium">Uttara Sector 18 Fleet</p>
+              </div>
             </div>
+            {/* Close Button for Mobile Drawer */}
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="lg:hidden p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Primary Navigation */}
@@ -1027,7 +1051,10 @@ export default function App() {
             </span>
 
             <button
-              onClick={() => setNavTab('MAP')}
+              onClick={() => {
+                setNavTab('MAP');
+                setMobileMenuOpen(false);
+              }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 navTab === 'MAP'
                   ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
@@ -1046,7 +1073,10 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setNavTab('POLES')}
+              onClick={() => {
+                setNavTab('POLES');
+                setMobileMenuOpen(false);
+              }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 navTab === 'POLES'
                   ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
@@ -1060,7 +1090,10 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setNavTab('ALERTS')}
+              onClick={() => {
+                setNavTab('ALERTS');
+                setMobileMenuOpen(false);
+              }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 navTab === 'ALERTS'
                   ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
@@ -1079,7 +1112,10 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setNavTab('ANALYTICS')}
+              onClick={() => {
+                setNavTab('ANALYTICS');
+                setMobileMenuOpen(false);
+              }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 navTab === 'ANALYTICS'
                   ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30'
@@ -1107,7 +1143,10 @@ export default function App() {
             ].map((cl) => (
               <button
                 key={cl.id}
-                onClick={() => handleSelectCluster(cl.id)}
+                onClick={() => {
+                  handleSelectCluster(cl.id);
+                  setMobileMenuOpen(false);
+                }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                   clusterFilter === cl.id
                     ? `${cl.activeBg} font-bold border shadow-xs`
@@ -1143,11 +1182,27 @@ export default function App() {
 
       {/* 2. MAIN CONTENT VIEWPORT */}
       <main className="flex-1 relative flex flex-col h-full overflow-hidden bg-[#f8fafc] isolate">
-        {/* TOP FIXED CLEAN HEADER BAR (Light Theme) */}
-        <header className="h-14 bg-white border-b border-gray-200 px-5 flex items-center justify-between z-30 shrink-0 gap-4 shadow-xs">
-          {/* Left: Breadcrumb & Search Input */}
-          <div className="flex items-center gap-4 flex-1 max-w-xl">
-            {/* Breadcrumb */}
+        {/* TOP FIXED CLEAN HEADER BAR (Light Theme & Mobile Responsive) */}
+        <header className="h-14 bg-white border-b border-gray-200 px-3 sm:px-5 flex items-center justify-between z-[1200] shrink-0 gap-2 sm:gap-4 shadow-xs">
+          {/* Left: Mobile Menu Toggle & Search Input */}
+          <div className="flex items-center gap-2 sm:gap-4 flex-1 max-w-xl">
+            {/* Hamburger Toggle (Mobile / Tablet) */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="lg:hidden p-2 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors shrink-0"
+              title="Open Navigation Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            {/* Mobile Brand Mark (Shown on small screens where sidebar is hidden) */}
+            <div className="lg:hidden flex items-center gap-1.5 shrink-0">
+              <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center text-white shadow-xs">
+                <Zap className="w-4 h-4 fill-white" />
+              </div>
+            </div>
+
+            {/* Desktop Breadcrumb */}
             <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400 font-medium whitespace-nowrap">
               <span>Home</span>
               <span>/</span>
@@ -1157,13 +1212,13 @@ export default function App() {
             </div>
 
             {/* Quick Search */}
-            <div className="relative flex-1">
+            <div className="relative flex-1 min-w-[120px]">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search pole ID, cluster, or street..."
+                placeholder="Search pole or cluster..."
                 className="w-full bg-gray-50/80 hover:bg-gray-100/70 focus:bg-white border border-gray-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/20 transition-all font-medium"
               />
               {searchQuery && (
@@ -1177,7 +1232,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Center: Live Quick Metrics Chips */}
+          {/* Center: Live Quick Metrics Chips (Hidden on smaller screens) */}
           <div className="hidden xl:flex items-center gap-3 text-xs bg-gray-50 border border-gray-200/90 px-3.5 py-1.5 rounded-xl font-medium">
             <div className="flex items-center gap-1.5" title="Active Poles Online">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -1205,7 +1260,7 @@ export default function App() {
           </div>
 
           {/* Right: Actions Toolbar */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Reposition Mode Button */}
             <button
               onClick={() => {
@@ -1218,7 +1273,7 @@ export default function App() {
                 );
               }}
               title="Toggle Drag-and-Drop Pin Relocation"
-              className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 border ${
+              className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 border ${
                 isRepositionMode
                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm ring-2 ring-indigo-300'
                   : 'text-gray-700 bg-gray-50 hover:bg-gray-100 border-gray-200'
@@ -1244,15 +1299,15 @@ export default function App() {
                 });
                 setIsAddingPole(true);
               }}
-              className="px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-white shadow-xs"
+              className="px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-white shadow-xs shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Pole</span>
+              <span className="hidden sm:inline">Add Pole</span>
             </button>
 
             {/* Live WebSocket Status Pill */}
             <div
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-medium border ${
+              className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl text-[11px] font-medium border shrink-0 ${
                 wsConnected
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                   : 'bg-rose-50 text-rose-700 border-rose-200'
@@ -1274,7 +1329,7 @@ export default function App() {
                 }
               }}
               title={navTab === 'MAP' && drawerOpen ? 'Hide Detail Drawer' : 'Show Detail Drawer'}
-              className={`p-1.5 rounded-xl border transition-all ${
+              className={`p-1.5 rounded-xl border transition-all shrink-0 ${
                 navTab === 'MAP' && drawerOpen ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200'
               }`}
             >
@@ -1288,19 +1343,21 @@ export default function App() {
           <div className="w-full h-full relative">
             {/* Interactive Coordinate Picker Banner */}
             {(isPickingCoordsOnMap || isRepositionMode) && (
-              <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-30 bg-white/95 backdrop-blur-xl border border-amber-400/80 px-4 py-2 rounded-2xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                <span className="text-xs font-semibold text-gray-900">
-                  {isPickingCoordsOnMap
-                    ? `🎯 Click anywhere on the map to place ${selectedPoleId}`
-                    : '🖐️ Drag any circle marker to relocate its position'}
-                </span>
+              <div className="absolute top-3 sm:top-5 left-16 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-auto z-[1000] bg-white/95 backdrop-blur-xl border border-amber-400/80 px-3.5 sm:px-4 py-2 rounded-2xl shadow-xl flex items-center justify-between sm:justify-start gap-3 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                  <span className="text-xs font-semibold text-gray-900 truncate">
+                    {isPickingCoordsOnMap
+                      ? `🎯 Click map to place ${selectedPoleId}`
+                      : '🖐️ Drag circle marker to move'}
+                  </span>
+                </div>
                 <button
                   onClick={() => {
                     setIsPickingCoordsOnMap(false);
                     setIsRepositionMode(false);
                   }}
-                  className="px-2.5 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg border border-gray-200 font-semibold shadow-xs"
+                  className="px-2.5 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg border border-gray-200 font-semibold shadow-xs shrink-0"
                 >
                   Done
                 </button>
@@ -1327,10 +1384,10 @@ export default function App() {
               onClick={handleMapClick}
               cursor={isPickingCoordsOnMap || isAddingPole ? 'crosshair' : (isRepositionMode ? 'grab' : 'default')}
             >
-              <NavigationControl position="bottom-left" showCompass={true} visualizePitch={true} />
+              <NavigationControl position="top-left" showCompass={true} visualizePitch={true} />
 
-              {/* Floating Basemap Style & 3D Perspective Picker (Minimal with Refined Color Accents) */}
-              <div className="absolute bottom-6 left-16 z-30 flex items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-lg">
+              {/* 1. DESKTOP BASEMAP STYLE & 3D TOOLBAR (>= md screens) */}
+              <div className="hidden md:flex absolute bottom-6 left-6 z-[1000] items-center gap-1.5 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-lg">
                 {/* 3D Perspective Quick Tilt Button */}
                 <button
                   onClick={() => {
@@ -1343,7 +1400,7 @@ export default function App() {
                       duration: 800,
                     });
                   }}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border ${
+                  className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border shrink-0 ${
                     is3DMode
                       ? 'bg-amber-50 text-amber-900 border-amber-200 shadow-2xs font-semibold'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
@@ -1354,12 +1411,12 @@ export default function App() {
                   <span>3D Angle</span>
                 </button>
 
-                <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
+                <div className="w-[1px] h-4 bg-gray-200 mx-0.5 shrink-0" />
 
                 {/* Mesh Lines Toggle */}
                 <button
                   onClick={() => setShowMeshLines((prev) => !prev)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border ${
+                  className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border shrink-0 ${
                     showMeshLines
                       ? 'bg-purple-50 text-purple-900 border-purple-200 shadow-2xs font-semibold'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
@@ -1370,7 +1427,7 @@ export default function App() {
                   <span>Mesh Lines</span>
                 </button>
 
-                <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
+                <div className="w-[1px] h-4 bg-gray-200 mx-0.5 shrink-0" />
 
                 {[
                   {
@@ -1401,7 +1458,7 @@ export default function App() {
                     <button
                       key={s.id}
                       onClick={() => setMapStyleKey(s.id)}
-                      className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border ${
+                      className={`px-2.5 py-1 text-xs font-medium rounded-xl transition-all flex items-center gap-1.5 border shrink-0 ${
                         isActive
                           ? s.activeStyle
                           : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
@@ -1413,6 +1470,113 @@ export default function App() {
                   );
                 })}
               </div>
+
+              {/* 2. MOBILE COMPACT MAP CONTROL PILL (< md screens) */}
+              <div className="md:hidden absolute bottom-20 left-3 z-[1000] flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 rounded-2xl border border-gray-200/90 shadow-lg">
+                {/* 3D Tilt Quick Toggle */}
+                <button
+                  onClick={() => {
+                    if (!mapRef.current) return;
+                    const next3D = !is3DMode;
+                    setIs3DMode(next3D);
+                    mapRef.current.easeTo({
+                      pitch: next3D ? 60 : 0,
+                      bearing: next3D ? -15 : 0,
+                      duration: 800,
+                    });
+                  }}
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-xl transition-all flex items-center gap-1 border ${
+                    is3DMode
+                      ? 'bg-amber-50 text-amber-900 border-amber-200 shadow-2xs font-bold'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
+                  }`}
+                >
+                  <Compass className={`w-3.5 h-3.5 ${is3DMode ? 'text-amber-600' : 'text-amber-500'}`} />
+                  <span>3D</span>
+                </button>
+
+                <div className="w-[1px] h-4 bg-gray-200" />
+
+                {/* Mesh Lines Quick Toggle */}
+                <button
+                  onClick={() => setShowMeshLines((prev) => !prev)}
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-xl transition-all flex items-center gap-1 border ${
+                    showMeshLines
+                      ? 'bg-purple-50 text-purple-900 border-purple-200 shadow-2xs font-bold'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
+                  }`}
+                >
+                  <Network className={`w-3.5 h-3.5 ${showMeshLines ? 'text-purple-600' : 'text-purple-400'}`} />
+                  <span>Mesh</span>
+                </button>
+
+                <div className="w-[1px] h-4 bg-gray-200" />
+
+                {/* Map Layers Dropdown Trigger */}
+                <button
+                  onClick={() => setMobileMapLayersOpen((prev) => !prev)}
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-xl transition-all flex items-center gap-1 border ${
+                    mobileMapLayersOpen
+                      ? 'bg-blue-50 text-blue-900 border-blue-200 shadow-2xs font-bold'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 border-transparent'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-blue-500" />
+                  <span className="capitalize">{mapStyleKey === 'google_earth' ? 'Satellite' : mapStyleKey}</span>
+                  <ChevronUp className={`w-3 h-3 text-gray-400 transition-transform duration-200 ${mobileMapLayersOpen ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+
+              {/* Mobile Map Layers Popover Menu */}
+              {mobileMapLayersOpen && (
+                <>
+                  <div
+                    className="md:hidden fixed inset-0 z-[1050]"
+                    onClick={() => setMobileMapLayersOpen(false)}
+                  />
+                  <div className="md:hidden absolute bottom-32 left-3 z-[1100] bg-white/95 backdrop-blur-xl border border-gray-200/90 rounded-2xl p-2.5 shadow-2xl space-y-1.5 min-w-[210px] animate-in fade-in slide-in-from-bottom-2 duration-150">
+                    <div className="px-2 py-1 flex items-center justify-between border-b border-gray-100 mb-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Select Basemap</span>
+                      <button
+                        onClick={() => setMobileMapLayersOpen(false)}
+                        className="text-gray-400 hover:text-gray-600 p-0.5"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {[
+                      { id: 'positron', label: 'Positron Light', desc: 'Minimal clean grayscale', Icon: Sun, color: 'text-amber-500', activeStyle: 'bg-amber-50 text-amber-900 border-amber-200 font-bold' },
+                      { id: 'voyager', label: 'Voyager Streets', desc: 'Detailed road network', Icon: Layers, color: 'text-blue-500', activeStyle: 'bg-blue-50 text-blue-900 border-blue-200 font-bold' },
+                      { id: 'google_earth', label: 'Google Earth View', desc: 'Photorealistic satellite', Icon: Globe, color: 'text-emerald-500', activeStyle: 'bg-emerald-50 text-emerald-900 border-emerald-200 font-bold' },
+                    ].map((s) => {
+                      const isActive = mapStyleKey === s.id;
+                      const ItemIcon = s.Icon;
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setMapStyleKey(s.id);
+                            setMobileMapLayersOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all border ${
+                            isActive ? s.activeStyle : 'text-gray-700 hover:bg-gray-50 border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <ItemIcon className={`w-4 h-4 ${s.color}`} />
+                            <div className="text-left">
+                              <span className="block font-semibold text-gray-900">{s.label}</span>
+                              <span className="block text-[10px] text-gray-400">{s.desc}</span>
+                            </div>
+                          </div>
+                          {isActive && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
 
               {/* Dynamic Mesh Network Lines connecting each neighbor Street Lamp Pole to its Cluster Master Pole */}
               {showMeshLines && (
@@ -1648,16 +1812,80 @@ export default function App() {
 
         {/* POLES TABLE VIEW TAB */}
         {navTab === 'POLES' && (
-          <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
+          <div className="flex-1 p-3 sm:p-6 pb-24 md:pb-6 overflow-y-auto bg-slate-50">
             <div className="max-w-6xl mx-auto">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-4 sm:mb-6">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900 tracking-tight">Smart Pole Fleet Inventory</h2>
+                  <h2 className="text-base sm:text-lg font-bold text-gray-900 tracking-tight">Smart Pole Fleet Inventory</h2>
                   <p className="text-xs text-gray-500 font-medium">15 GIS assets operating across Uttara Sector 18 / Diabari</p>
                 </div>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
+              {/* Mobile Responsive Cards (< md) */}
+              <div className="md:hidden space-y-3">
+                {filteredPoles.map((p) => {
+                  const isSelected = p.pole_id === selectedPoleId;
+                  const isLightOn = p.latest_light_state || p.is_on;
+                  const isTampered = p.status === 'TAMPER/CRITICAL' || p.latest_tamper_status;
+
+                  return (
+                    <div
+                      key={p.pole_id}
+                      onClick={() => focusOnPole(p)}
+                      className={`p-4 rounded-2xl bg-white border transition-all cursor-pointer shadow-xs ${
+                        isSelected ? 'border-amber-400 ring-2 ring-amber-200' : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${isTampered ? 'bg-rose-500 animate-ping' : isLightOn ? 'bg-amber-500' : 'bg-gray-300'}`} />
+                          <span className="font-bold text-sm text-gray-900">{p.pole_id}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-600">
+                            {p.cluster_id}
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            dispatchControl(p.pole_id, !isLightOn, isLightOn ? 0 : 100);
+                          }}
+                          className={`p-2 rounded-xl border text-xs transition-all ${
+                            isLightOn
+                              ? 'bg-amber-50 text-amber-700 border-amber-300'
+                              : 'bg-gray-100 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          <Power className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <p className="text-xs text-gray-500 mb-3 font-medium truncate">
+                        {p.name} • <span className="font-mono text-[11px]">{Number(p.latitude)?.toFixed(4)}, {Number(p.longitude)?.toFixed(4)}</span>
+                      </p>
+
+                      <div className="grid grid-cols-3 gap-2 pt-2.5 border-t border-gray-100 text-xs">
+                        <div className="bg-gray-50 p-2 rounded-xl border border-gray-100">
+                          <span className="text-[10px] text-gray-400 block font-medium">Battery</span>
+                          <span className="font-bold text-emerald-600 font-mono">{p.latest_battery_soc || 90}%</span>
+                        </div>
+                        <div className="bg-gray-50 p-2 rounded-xl border border-gray-100">
+                          <span className="text-[10px] text-gray-400 block font-medium">Power</span>
+                          <span className="font-bold text-gray-800 font-mono">{p.latest_power_watts || 195}W</span>
+                        </div>
+                        <div className="bg-gray-50 p-2 rounded-xl border border-gray-100">
+                          <span className="text-[10px] text-gray-400 block font-medium">State</span>
+                          <span className={`font-bold font-mono ${isLightOn ? 'text-amber-600' : 'text-gray-400'}`}>
+                            {isLightOn ? `${p.latest_brightness ?? 100}%` : 'OFF'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop & Tablet Full Table (>= md) */}
+              <div className="hidden md:block bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
                 <table className="w-full text-left text-xs text-gray-700">
                   <thead className="bg-gray-50 text-gray-500 uppercase font-bold text-[10px] tracking-wider border-b border-gray-200">
                     <tr>
@@ -1750,16 +1978,16 @@ export default function App() {
 
         {/* ALERTS TAB */}
         {navTab === 'ALERTS' && (
-          <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
+          <div className="flex-1 p-3 sm:p-6 pb-24 md:pb-6 overflow-y-auto bg-slate-50">
             <div className="max-w-4xl mx-auto">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900 tracking-tight">ISA-18.2 Alarm Lifecycle</h2>
+                  <h2 className="text-base sm:text-lg font-bold text-gray-900 tracking-tight">ISA-18.2 Alarm Lifecycle</h2>
                   <p className="text-xs text-gray-500 font-medium">Stateful telemetry threshold & physical tamper events</p>
                 </div>
                 <button
                   onClick={() => fetch(`${API_BASE}/api/alerts/resolve-all`, { method: 'POST' }).then(() => fetchData())}
-                  className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-800 rounded-xl border border-gray-200 transition-all flex items-center gap-1.5 shadow-xs"
+                  className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-800 rounded-xl border border-gray-200 transition-all flex items-center justify-center gap-1.5 shadow-xs shrink-0 self-start sm:self-auto"
                 >
                   <Check className="w-3.5 h-3.5 text-emerald-600" />
                   Resolve All Alarms
@@ -1776,7 +2004,7 @@ export default function App() {
                   alerts.map((a) => (
                     <div
                       key={a.id}
-                      className={`p-4 rounded-2xl border flex items-start justify-between gap-4 transition-all bg-white ${
+                      className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4 transition-all bg-white ${
                         a.status === 'ACTIVE'
                           ? a.severity === 'CRITICAL'
                             ? 'border-rose-300 shadow-sm text-rose-900'
@@ -1786,7 +2014,7 @@ export default function App() {
                     >
                       <div className="flex items-start gap-3">
                         <div
-                          className={`p-2 rounded-xl border ${
+                          className={`p-2 rounded-xl border shrink-0 ${
                             a.status === 'ACTIVE'
                               ? a.severity === 'CRITICAL'
                                 ? 'bg-rose-50 border-rose-200 text-rose-600'
@@ -1797,7 +2025,7 @@ export default function App() {
                           <AlertTriangle className="w-5 h-5" />
                         </div>
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
                             <span className="font-bold text-sm text-gray-900">{a.pole_id}</span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-gray-100 border border-gray-200 text-gray-700">
                               {a.alert_type}
@@ -1811,7 +2039,7 @@ export default function App() {
                       {a.status === 'ACTIVE' && (
                         <button
                           onClick={() => handleResolveAlerts(a.pole_id)}
-                          className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1 shrink-0 shadow-xs"
+                          className="w-full sm:w-auto justify-center px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1 shrink-0 shadow-xs"
                         >
                           <Check className="w-3.5 h-3.5" />
                           Clear Alert
@@ -1827,15 +2055,15 @@ export default function App() {
 
         {/* ANALYTICS TAB */}
         {navTab === 'ANALYTICS' && (
-          <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
+          <div className="flex-1 p-3 sm:p-6 pb-24 md:pb-6 overflow-y-auto bg-slate-50">
             <div className="max-w-5xl mx-auto space-y-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-900 tracking-tight">Energy & Microgrid Analytics</h2>
+                <h2 className="text-base sm:text-lg font-bold text-gray-900 tracking-tight">Energy & Microgrid Analytics</h2>
                 <p className="text-xs text-gray-500 font-medium">Microgrid cluster distribution and solar power generation metrics</p>
               </div>
 
               {/* Cluster Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                 {gateways.map((gw) => {
                   const clusterPoles = poles.filter((p) => p.cluster_id === gw.cluster_id);
                   const clusterLoad = (
@@ -1846,20 +2074,20 @@ export default function App() {
                     : 0;
 
                   return (
-                    <div key={gw.id} className="p-5 rounded-2xl bg-white border border-gray-200 shadow-xs">
-                      <div className="flex items-center justify-between mb-3">
+                    <div key={gw.id} className="p-4 sm:p-5 rounded-2xl bg-white border border-gray-200 shadow-xs">
+                      <div className="flex items-center justify-between mb-2 sm:mb-3">
                         <span className="text-xs font-bold text-indigo-600">{gw.id}</span>
                         <span className="text-[10px] text-gray-400 font-mono">{clusterPoles.length} Nodes</span>
                       </div>
-                      <h3 className="text-sm font-bold text-gray-900 mb-4 truncate">{gw.cluster_name}</h3>
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-200/80">
+                      <h3 className="text-sm font-bold text-gray-900 mb-3 sm:mb-4 truncate">{gw.cluster_name}</h3>
+                      <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs">
+                        <div className="bg-gray-50 p-2.5 sm:p-3 rounded-xl border border-gray-200/80">
                           <span className="text-[10px] text-gray-400 block mb-0.5 font-medium">Active Load</span>
-                          <span className="font-bold text-amber-600 font-mono text-sm">{clusterLoad} kW</span>
+                          <span className="font-bold text-amber-600 font-mono text-xs sm:text-sm">{clusterLoad} kW</span>
                         </div>
-                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-200/80">
+                        <div className="bg-gray-50 p-2.5 sm:p-3 rounded-xl border border-gray-200/80">
                           <span className="text-[10px] text-gray-400 block mb-0.5 font-medium">Avg Battery SoC</span>
-                          <span className="font-bold text-emerald-600 font-mono text-sm">{clusterAvgSoc}%</span>
+                          <span className="font-bold text-emerald-600 font-mono text-xs sm:text-sm">{clusterAvgSoc}%</span>
                         </div>
                       </div>
                     </div>
@@ -1869,11 +2097,69 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* MOBILE BOTTOM NAVIGATION BAR (Phones only) */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-md border-t border-gray-200 z-[1200] flex items-center justify-around px-2 shadow-lg">
+          <button
+            onClick={() => setNavTab('MAP')}
+            className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+              navTab === 'MAP' ? 'text-amber-600 font-bold' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <MapPin className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Map</span>
+          </button>
+          <button
+            onClick={() => setNavTab('POLES')}
+            className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+              navTab === 'POLES' ? 'text-amber-600 font-bold' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <TableIcon className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Fleet</span>
+          </button>
+          <button
+            onClick={() => setNavTab('ALERTS')}
+            className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl relative transition-all ${
+              navTab === 'ALERTS' ? 'text-amber-600 font-bold' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Bell className="w-5 h-5" />
+            {tamperedCount > 0 && (
+              <span className="absolute top-1 right-3 w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            )}
+            <span className="text-[10px] mt-0.5">Alerts</span>
+          </button>
+          <button
+            onClick={() => setNavTab('ANALYTICS')}
+            className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+              navTab === 'ANALYTICS' ? 'text-amber-600 font-bold' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Activity className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Analytics</span>
+          </button>
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex flex-col items-center justify-center py-1 px-3 rounded-xl text-gray-500 hover:text-gray-900 transition-all"
+          >
+            <Menu className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Menu</span>
+          </button>
+        </nav>
       </main>
+
+      {/* Backdrop for mobile when detail drawer is open */}
+      {navTab === 'MAP' && drawerOpen && selectedPole && (
+        <div
+          className="sm:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-[99998]"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
 
       {/* 3. RIGHT SLIDING DETAIL DRAWER — CLEAN LIGHT CHARGEHUB PANEL */}
       <div
-        className={`fixed top-0 right-0 h-full w-[390px] max-w-full bg-white border-l border-gray-200 shadow-2xl flex flex-col z-[99999] transition-transform duration-300 ease-out ${
+        className={`fixed top-0 right-0 h-full w-full sm:w-[390px] max-w-full bg-white border-l border-gray-200 shadow-2xl flex flex-col z-[99999] transition-transform duration-300 ease-out ${
           navTab === 'MAP' && drawerOpen && selectedPole ? 'translate-x-0' : 'translate-x-full pointer-events-none'
         }`}
       >
@@ -2386,8 +2672,8 @@ export default function App() {
 
       {/* 4. ADD NEW CUSTOM POLE MODAL */}
       {isAddingPole && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white border border-gray-200 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
@@ -2546,10 +2832,10 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. TOAST NOTIFICATIONS STACK — Clean Light Theme Matching System, Floats cleanly beside Drawer */}
+      {/* 5. TOAST NOTIFICATIONS STACK — Mobile Responsive & Clean */}
       <div
-        className={`fixed bottom-6 z-40 flex flex-col-reverse gap-2.5 max-w-sm pointer-events-none transition-all duration-300 ease-out ${
-          navTab === 'MAP' && drawerOpen && selectedPole ? 'right-[410px]' : 'right-6'
+        className={`fixed bottom-20 md:bottom-6 z-40 flex flex-col-reverse gap-2.5 left-3 right-3 sm:left-auto sm:right-6 sm:max-w-sm pointer-events-none transition-all duration-300 ease-out ${
+          navTab === 'MAP' && drawerOpen && selectedPole ? 'sm:right-[410px]' : 'sm:right-6'
         }`}
       >
         {toastStack.map((toast) => {
