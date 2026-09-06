@@ -127,6 +127,11 @@ export async function initDB(retries = 10, delayMs = 2000) {
           END IF;
 
           -- Telemetry table column migrations
+          ALTER TABLE telemetry_logs ALTER COLUMN state_of_charge TYPE NUMERIC;
+          ALTER TABLE telemetry_logs ALTER COLUMN battery_soc TYPE NUMERIC;
+          ALTER TABLE telemetry_logs ALTER COLUMN brightness TYPE NUMERIC;
+          ALTER TABLE telemetry_logs ALTER COLUMN estimated_runtime_minutes TYPE NUMERIC;
+
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='power_watts') THEN
             ALTER TABLE telemetry_logs ADD COLUMN power_watts NUMERIC;
           END IF;
@@ -140,19 +145,19 @@ export async function initDB(retries = 10, delayMs = 2000) {
             ALTER TABLE telemetry_logs ADD COLUMN battery_temp NUMERIC;
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='state_of_charge') THEN
-            ALTER TABLE telemetry_logs ADD COLUMN state_of_charge INT;
+            ALTER TABLE telemetry_logs ADD COLUMN state_of_charge NUMERIC;
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='battery_current') THEN
             ALTER TABLE telemetry_logs ADD COLUMN battery_current NUMERIC;
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='estimated_runtime_minutes') THEN
-            ALTER TABLE telemetry_logs ADD COLUMN estimated_runtime_minutes INT;
+            ALTER TABLE telemetry_logs ADD COLUMN estimated_runtime_minutes NUMERIC;
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='ambient_light_lux') THEN
             ALTER TABLE telemetry_logs ADD COLUMN ambient_light_lux NUMERIC;
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='brightness') THEN
-            ALTER TABLE telemetry_logs ADD COLUMN brightness INT;
+            ALTER TABLE telemetry_logs ADD COLUMN brightness NUMERIC;
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telemetry_logs' AND column_name='tamper_status') THEN
             ALTER TABLE telemetry_logs ADD COLUMN tamper_status BOOLEAN DEFAULT false;
@@ -354,24 +359,28 @@ export async function bulkSaveTelemetry(records) {
     const light_state = Boolean(r.light_state);
     const createdAt = r.created_at || r.timestamp || new Date().toISOString();
 
+    const roundedSoc = Math.round(soc);
+    const roundedBrightness = Math.round(brightness);
+    const roundedRuntime = Math.round(Number(estimated_runtime_minutes) || 0);
+
     valuePlaceholders.push(
       `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
     );
     queryParams.push(
       r.pole_id,
-      r.counter ?? 0,
+      Math.round(Number(r.counter) || 0),
       voltage,
       current,
       power_watts,
       energy_kwh,
       battery_voltage,
       battery_temp,
-      soc,
-      soc, // battery_soc
+      roundedSoc,
+      roundedSoc, // battery_soc
       battery_current,
-      estimated_runtime_minutes,
+      roundedRuntime,
       ambient_light_lux,
-      brightness,
+      roundedBrightness,
       tamper_status,
       light_state,
       createdAt
